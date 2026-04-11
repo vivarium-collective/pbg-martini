@@ -1,5 +1,11 @@
 # pbg-martini
 
+### [**View Interactive Demo Report**](https://vivarium-collective.github.io/pbg-martini/)
+
+> Plasma membranes, micelles, protein-lipid complexes, and vesicles — 3D interactive viewers with energy-minimized Martini CG structures.
+
+---
+
 Process-bigraph wrapper for the [Martini](https://cgmartini.nl) coarse-grained
 force field, using [vermouth/martinize2](https://github.com/marrink-lab/vermouth-martinize)
 and procedural membrane builders. Provides PBG Steps for:
@@ -7,7 +13,7 @@ and procedural membrane builders. Provides PBG Steps for:
 - **Protein coarse-graining** (atomistic PDB → Martini CG via martinize2)
 - **Lipid bilayer membranes** (POPC, POPE, CHOL, SM, DPPC)
 - **Micelle self-assembly** (DPC and other detergents)
-- **Protein–membrane complexes** (transmembrane helices in bilayers)
+- **Protein-membrane complexes** (transmembrane helices in bilayers)
 - **Vesicles / liposomes** (spherical bilayers with inner/outer leaflets)
 
 ## Installation
@@ -91,20 +97,24 @@ result = step.update({})
 
 ## Demo
 
+**[View the live interactive report](https://vivarium-collective.github.io/pbg-martini/)**
+
+Or generate it locally:
+
 ```bash
 python demo/demo_report.py
 ```
 
-Generates `demo/report.html` — an interactive report with four complex systems:
+The report contains four energy-minimized Martini CG systems:
 
 1. **Asymmetric plasma membrane** — 392 lipids (POPC/POPE/CHOL/SM), 4,312 beads
 2. **DPC micelle** — 80 detergent molecules, 480 beads
 3. **WALP23 in bilayer** — transmembrane helix + 320 lipids, 4,202 beads
 4. **Mixed-lipid vesicle** — 570 lipids across two leaflets, 6,384 beads
 
-Each section features instanced Three.js 3D bead rendering on a dark background,
-Plotly composition charts, bigraph-viz architecture diagrams, and collapsible
-PBG document trees.
+Each section features Three.js 3D bead viewers (Martini paper style: matte spheres,
+VDW sizing, per-lipid coloring), Plotly composition charts, bigraph-viz architecture
+diagrams, and collapsible PBG document trees.
 
 ## Tests
 
