@@ -5,6 +5,13 @@ import tempfile
 import numpy as np
 from process_bigraph import Step
 
+from pbg_martini.builders import (
+    build_bilayer,
+    build_micelle,
+    build_protein_in_membrane,
+    build_vesicle,
+)
+
 
 class MartinizeStep(Step):
     """Coarse-grain an atomistic protein structure using the Martini force field.
@@ -213,3 +220,144 @@ def run_martinize_pipeline(
         }
     finally:
         os.unlink(tmp.name)
+
+
+class MembraneBuilderStep(Step):
+    """Build a lipid bilayer membrane patch from composition and grid parameters.
+
+    Procedurally places lipids in a flat bilayer with both leaflets,
+    random rotations, and small positional jitter.
+    """
+
+    config_schema = {
+        'composition': {
+            '_type': 'map',
+            '_default': {'POPC': 0.4, 'POPE': 0.25, 'CHOL': 0.2, 'SM': 0.15},
+        },
+        'nx': {'_type': 'integer', '_default': 12},
+        'ny': {'_type': 'integer', '_default': 12},
+        'spacing': {'_type': 'float', '_default': 0.65},
+        'seed': {'_type': 'integer', '_default': 123},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'beads': 'overwrite[list]',
+            'bonds': 'overwrite[list]',
+            'stats': 'overwrite[map]',
+        }
+
+    def update(self, state):
+        return build_bilayer(
+            composition=self.config['composition'],
+            nx_lipids=self.config['nx'],
+            ny_lipids=self.config['ny'],
+            spacing=self.config['spacing'],
+            seed=self.config['seed'],
+        )
+
+
+class MicelleBuilderStep(Step):
+    """Build a spherical micelle from a single-tail lipid/detergent."""
+
+    config_schema = {
+        'lipid': {'_type': 'string', '_default': 'DPC'},
+        'n_lipids': {'_type': 'integer', '_default': 60},
+        'radius': {'_type': 'float', '_default': 2.5},
+        'seed': {'_type': 'integer', '_default': 456},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'beads': 'overwrite[list]',
+            'bonds': 'overwrite[list]',
+            'stats': 'overwrite[map]',
+        }
+
+    def update(self, state):
+        return build_micelle(
+            lipid_name=self.config['lipid'],
+            n_lipids=self.config['n_lipids'],
+            radius=self.config['radius'],
+            seed=self.config['seed'],
+        )
+
+
+class ProteinMembraneStep(Step):
+    """Build a transmembrane helix embedded in a lipid bilayer."""
+
+    config_schema = {
+        'composition': {
+            '_type': 'map',
+            '_default': {'POPC': 0.7, 'CHOL': 0.3},
+        },
+        'nx': {'_type': 'integer', '_default': 14},
+        'ny': {'_type': 'integer', '_default': 14},
+        'spacing': {'_type': 'float', '_default': 0.65},
+        'n_helix_residues': {'_type': 'integer', '_default': 23},
+        'exclusion_radius': {'_type': 'float', '_default': 0.8},
+        'seed': {'_type': 'integer', '_default': 789},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'beads': 'overwrite[list]',
+            'bonds': 'overwrite[list]',
+            'stats': 'overwrite[map]',
+        }
+
+    def update(self, state):
+        return build_protein_in_membrane(
+            composition=self.config['composition'],
+            nx_lipids=self.config['nx'],
+            ny_lipids=self.config['ny'],
+            spacing=self.config['spacing'],
+            n_helix_residues=self.config['n_helix_residues'],
+            exclusion_radius=self.config['exclusion_radius'],
+            seed=self.config['seed'],
+        )
+
+
+class VesicleBuilderStep(Step):
+    """Build a spherical vesicle (liposome) with inner and outer leaflets."""
+
+    config_schema = {
+        'composition': {
+            '_type': 'map',
+            '_default': {'POPC': 0.4, 'POPE': 0.25, 'CHOL': 0.2, 'DPPC': 0.15},
+        },
+        'n_outer': {'_type': 'integer', '_default': 350},
+        'n_inner': {'_type': 'integer', '_default': 220},
+        'outer_radius': {'_type': 'float', '_default': 7.0},
+        'inner_radius': {'_type': 'float', '_default': 5.2},
+        'seed': {'_type': 'integer', '_default': 999},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'beads': 'overwrite[list]',
+            'bonds': 'overwrite[list]',
+            'stats': 'overwrite[map]',
+        }
+
+    def update(self, state):
+        return build_vesicle(
+            composition=self.config['composition'],
+            n_lipids_outer=self.config['n_outer'],
+            n_lipids_inner=self.config['n_inner'],
+            outer_radius=self.config['outer_radius'],
+            inner_radius=self.config['inner_radius'],
+            seed=self.config['seed'],
+        )

@@ -1,10 +1,14 @@
 # pbg-martini
 
 Process-bigraph wrapper for the [Martini](https://cgmartini.nl) coarse-grained
-force field, using the [vermouth/martinize2](https://github.com/marrink-lab/vermouth-martinize)
-Python library. Converts atomistic protein structures (PDB format) to
-coarse-grained Martini representations as a single `Step` in the
-process-bigraph framework.
+force field, using [vermouth/martinize2](https://github.com/marrink-lab/vermouth-martinize)
+and procedural membrane builders. Provides PBG Steps for:
+
+- **Protein coarse-graining** (atomistic PDB → Martini CG via martinize2)
+- **Lipid bilayer membranes** (POPC, POPE, CHOL, SM, DPPC)
+- **Micelle self-assembly** (DPC and other detergents)
+- **Protein–membrane complexes** (transmembrane helices in bilayers)
+- **Vesicles / liposomes** (spherical bilayers with inner/outer leaflets)
 
 ## Installation
 
@@ -15,96 +19,75 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-```python
-from process_bigraph import Composite, allocate_core
-from process_bigraph.emitter import RAMEmitter
-from pbg_martini import MartinizeStep, make_martinize_document
-
-core = allocate_core()
-core.register_link('MartinizeStep', MartinizeStep)
-core.register_link('ram-emitter', RAMEmitter)
-
-pdb_text = open('my_protein.pdb').read()
-doc = make_martinize_document(pdb_text=pdb_text, to_ff='martini3001')
-sim = Composite({'state': doc}, core=core)
-sim.run(0)
-
-stores = sim.state['stores']
-print(f"Beads: {stores['n_beads']}, Bonds: {stores['n_bonds_cg']}")
-print(f"Reduction: {stores['reduction_ratio']}x")
-```
-
-Or use the pipeline function directly:
+### Protein coarse-graining
 
 ```python
 from pbg_martini import run_martinize_pipeline
 
 result = run_martinize_pipeline(pdb_text=open('protein.pdb').read())
-print(result['cg_beads'])       # List of bead dicts
-print(result['cg_positions'])   # List of [x, y, z] coordinates
-print(result['bead_type_counts'])  # {'SP2': 5, 'SC3': 3, ...}
+print(f"{result['n_beads']} CG beads, {result['reduction_ratio']}x reduction")
+```
+
+### Membrane building
+
+```python
+from pbg_martini import build_bilayer
+
+membrane = build_bilayer(
+    composition={'POPC': 0.4, 'POPE': 0.25, 'CHOL': 0.2, 'SM': 0.15},
+    nx_lipids=14, ny_lipids=14,
+)
+print(f"{membrane['stats']['n_lipids']} lipids, {membrane['stats']['n_beads']} beads")
+```
+
+### PBG Step integration
+
+```python
+from process_bigraph import allocate_core
+from pbg_martini import MembraneBuilderStep
+
+core = allocate_core()
+core.register_link('MembraneBuilderStep', MembraneBuilderStep)
+
+step = MembraneBuilderStep(
+    config={'composition': {'POPC': 0.7, 'CHOL': 0.3}, 'nx': 10, 'ny': 10},
+    core=core,
+)
+result = step.update({})
 ```
 
 ## API Reference
 
-### MartinizeStep
+### Steps
 
-| Config | Type | Default | Description |
-|--------|------|---------|-------------|
-| `from_ff` | string | `'charmm'` | Source atomistic force field |
-| `to_ff` | string | `'martini3001'` | Target Martini force field |
-| `delete_unknown` | boolean | `true` | Delete residues without known mapping |
-| `ignh` | boolean | `false` | Ignore hydrogen atoms in input |
+| Step | Description | Key Config |
+|------|-------------|------------|
+| `MartinizeStep` | Atomistic → CG protein mapping | `to_ff`, `from_ff` |
+| `MembraneBuilderStep` | Flat lipid bilayer patch | `composition`, `nx`, `ny`, `spacing` |
+| `MicelleBuilderStep` | Spherical micelle | `lipid`, `n_lipids`, `radius` |
+| `ProteinMembraneStep` | TM helix in bilayer | `composition`, `n_helix_residues` |
+| `VesicleBuilderStep` | Spherical vesicle | `composition`, `n_outer`, `n_inner` |
 
-**Inputs:**
+### Builder Functions
 
-| Port | Type | Description |
-|------|------|-------------|
-| `pdb_text` | string | PDB-format text of atomistic structure |
+| Function | Description |
+|----------|-------------|
+| `run_martinize_pipeline(pdb_text, ...)` | Full martinize2 pipeline |
+| `build_bilayer(composition, ...)` | Lipid bilayer with mixed composition |
+| `build_micelle(lipid_name, ...)` | Spherical micelle |
+| `build_protein_in_membrane(composition, ...)` | Helix embedded in bilayer |
+| `build_vesicle(composition, ...)` | Liposome with two leaflets |
 
-**Outputs:**
+### Supported Lipids
 
-| Port | Type | Description |
-|------|------|-------------|
-| `cg_beads` | list | List of bead dicts (atomname, atype, resname, resid, chain) |
-| `cg_positions` | list | List of [x, y, z] CG bead coordinates (nm) |
-| `cg_bonds` | list | List of [i, j] bond index pairs |
-| `interactions` | map | Interaction type counts (bonds, angles, constraints, ...) |
-| `bead_type_counts` | map | Count of each Martini bead type |
-| `residue_counts` | map | Count of beads per residue type |
-| `n_atoms_input` | integer | Number of atoms in the input PDB |
-| `n_atoms_full` | integer | Number of atoms after graph repair |
-| `n_beads` | integer | Number of CG beads produced |
-| `n_bonds_cg` | integer | Number of CG bonds |
-| `reduction_ratio` | float | Atom-to-bead reduction ratio |
-
-### Supported Force Fields
-
-Target: `martini3001` (default), `martini22`, `martini22p`, `martini30dev`,
-`elnedyn21`, `elnedyn22`, `elnedyn22p`, `martini30b32`, `martini3IDP`
-
-Source: `charmm` (default), `amber`, `gromos`
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│                     Composite                        │
-│                                                      │
-│  ┌──────────────┐      ┌─────────────────────────┐  │
-│  │ MartinizeStep│──────│         stores           │  │
-│  │              │      │  pdb_text (input)        │  │
-│  │  vermouth/   │─────▶│  cg_beads               │  │
-│  │  martinize2  │      │  cg_positions            │  │
-│  │  pipeline    │      │  cg_bonds                │  │
-│  │              │      │  bead_type_counts         │  │
-│  └──────────────┘      │  n_beads, reduction_ratio│  │
-│                        └─────────────────────────┘  │
-│  ┌──────────────┐              │                     │
-│  │  RAMEmitter  │◀─────────────┘                     │
-│  └──────────────┘                                    │
-└──────────────────────────────────────────────────────┘
-```
+| Lipid | Beads | Category |
+|-------|-------|----------|
+| POPC | 12 | Phospholipid |
+| POPE | 12 | Phospholipid |
+| DPPC | 12 | Phospholipid |
+| SM | 12 | Sphingolipid |
+| CHOL | 8 | Sterol |
+| DPC | 6 | Detergent |
 
 ## Demo
 
@@ -112,12 +95,19 @@ Source: `charmm` (default), `amber`, `gromos`
 python demo/demo_report.py
 ```
 
-Generates `demo/report.html` — an interactive report with Three.js 3D bead
-viewers, Plotly charts, bigraph-viz architecture diagrams, and PBG document
-trees for three peptide configurations.
+Generates `demo/report.html` — an interactive report with four complex systems:
+
+1. **Asymmetric plasma membrane** — 392 lipids (POPC/POPE/CHOL/SM), 4,312 beads
+2. **DPC micelle** — 80 detergent molecules, 480 beads
+3. **WALP23 in bilayer** — transmembrane helix + 320 lipids, 4,202 beads
+4. **Mixed-lipid vesicle** — 570 lipids across two leaflets, 6,384 beads
+
+Each section features instanced Three.js 3D bead rendering on a dark background,
+Plotly composition charts, bigraph-viz architecture diagrams, and collapsible
+PBG document trees.
 
 ## Tests
 
 ```bash
-pytest tests/ -v
+pytest tests/ -v  # 23 tests
 ```
