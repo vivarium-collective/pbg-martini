@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pbg-martini"
+version = "0.1.0"
+description = "Process-bigraph wrapper for Martini coarse-grained force field via vermouth/martinize2"
+requires-python = ">=3.9"
+dependencies = [
+    "process-bigraph>=0.0.10",
+    "bigraph-schema",
+    "vermouth>=0.9.0",
+    "numpy",
+]
+
+[tool.setuptools.packages.find]
+include = ["pbg_martini*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "bigraph-viz",
+    "plotly",
+    "matplotlib",
+]
