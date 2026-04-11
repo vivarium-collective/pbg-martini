@@ -34,7 +34,8 @@ LIPID_TEMPLATES = {
             (0, 1), (1, 2), (1, 3), (2, 4), (4, 5), (5, 6), (6, 7),
             (3, 8), (8, 9), (9, 10), (10, 11),
         ],
-        'color': [0.30, 0.55, 0.90],  # blue
+        'color_head': [0.29, 0.53, 0.78],  # blue head
+        'color_tail': [0.18, 0.35, 0.58],  # darker blue tail
         'category': 'phospholipid',
     },
     'POPE': {
@@ -56,7 +57,8 @@ LIPID_TEMPLATES = {
             (0, 1), (1, 2), (1, 3), (2, 4), (4, 5), (5, 6), (6, 7),
             (3, 8), (8, 9), (9, 10), (10, 11),
         ],
-        'color': [0.85, 0.45, 0.20],  # orange
+        'color_head': [0.83, 0.47, 0.16],  # orange head
+        'color_tail': [0.60, 0.33, 0.12],  # darker orange tail
         'category': 'phospholipid',
     },
     'CHOL': {
@@ -73,7 +75,8 @@ LIPID_TEMPLATES = {
         'bonds': [
             (0, 1), (1, 2), (1, 3), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7),
         ],
-        'color': [0.95, 0.85, 0.20],  # gold
+        'color_head': [0.90, 0.78, 0.10],  # gold head
+        'color_tail': [0.68, 0.58, 0.08],  # darker gold
         'category': 'sterol',
     },
     'SM': {
@@ -95,7 +98,8 @@ LIPID_TEMPLATES = {
             (0, 1), (1, 2), (1, 3), (2, 4), (4, 5), (5, 6), (6, 7),
             (3, 8), (8, 9), (9, 10), (10, 11),
         ],
-        'color': [0.80, 0.30, 0.65],  # magenta
+        'color_head': [0.77, 0.31, 0.60],  # magenta head
+        'color_tail': [0.55, 0.22, 0.43],  # darker magenta tail
         'category': 'sphingolipid',
     },
     'DPC': {
@@ -108,7 +112,8 @@ LIPID_TEMPLATES = {
             ('C3A', 'C1', [0.0, 0.0, -0.04]),
         ],
         'bonds': [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)],
-        'color': [0.40, 0.80, 0.50],  # green
+        'color_head': [0.32, 0.70, 0.42],  # green head
+        'color_tail': [0.22, 0.50, 0.30],  # darker green tail
         'category': 'detergent',
     },
     'DPPC': {
@@ -130,7 +135,8 @@ LIPID_TEMPLATES = {
             (0, 1), (1, 2), (1, 3), (2, 4), (4, 5), (5, 6), (6, 7),
             (3, 8), (8, 9), (9, 10), (10, 11),
         ],
-        'color': [0.50, 0.70, 0.95],  # light blue
+        'color_head': [0.49, 0.67, 0.85],  # light blue head
+        'color_tail': [0.33, 0.47, 0.62],  # darker light blue tail
         'category': 'phospholipid',
     },
 }
@@ -233,12 +239,8 @@ def build_bilayer(composition, nx_lipids=10, ny_lipids=10, spacing=0.65,
                     # Small jitter
                     pos += rng.normal(0, 0.015, 3)
 
-                    color = list(template['color'])
-                    # Darken tail beads
-                    if bi >= 4 and lip_name != 'CHOL':
-                        color = [c * 0.7 for c in color]
-                    elif lip_name == 'CHOL' and bi >= 3:
-                        color = [c * 0.8 for c in color]
+                    is_head = bi < 2
+                    color = list(template['color_head'] if is_head else template['color_tail'])
 
                     all_beads.append({
                         'pos': pos.tolist(),
@@ -319,9 +321,8 @@ def build_micelle(lipid_name='DPC', n_lipids=60, radius=2.5, seed=456):
             # Small jitter
             pos += rng.normal(0, 0.02, 3)
 
-            color = list(template['color'])
-            if bi >= 2:
-                color = [c * 0.7 for c in color]
+            is_head = bi < 2
+            color = list(template['color_head'] if is_head else template['color_tail'])
 
             all_beads.append({
                 'pos': pos.tolist(),
@@ -329,7 +330,7 @@ def build_micelle(lipid_name='DPC', n_lipids=60, radius=2.5, seed=456):
                 'label': f'{lipid_name}-{bname}',
                 'atype': btype,
                 'resname': lipid_name,
-                'is_head': bi < 2,
+                'is_head': is_head,
             })
 
         for (a, b) in template['bonds']:
@@ -571,11 +572,8 @@ def build_vesicle(composition, n_lipids_outer=400, n_lipids_inner=250,
                 pos = rot @ pos
                 pos += rng.normal(0, 0.02, 3)
 
-                color = list(template['color'])
-                if bi >= 4 and lip_name != 'CHOL':
-                    color = [c * 0.65 for c in color]
-                elif lip_name == 'CHOL' and bi >= 3:
-                    color = [c * 0.75 for c in color]
+                is_head = bi < 2
+                color = list(template['color_head'] if is_head else template['color_tail'])
 
                 all_beads.append({
                     'pos': pos.tolist(),
@@ -584,7 +582,7 @@ def build_vesicle(composition, n_lipids_outer=400, n_lipids_inner=250,
                     'atype': btype,
                     'resname': lip_name,
                     'leaflet': leaflet,
-                    'is_head': bi < 2,
+                    'is_head': is_head,
                 })
 
             for (a, b) in template['bonds']:
@@ -606,6 +604,163 @@ def build_vesicle(composition, n_lipids_outer=400, n_lipids_inner=250,
             'n_inner': n_lipids_inner,
         },
     }
+
+
+def relax_structure(result, n_steps=800, dt=0.005, sigma=0.47,
+                    bond_k=3000.0, repulsion_eps=3.0,
+                    perturb=0.12, constrain_z_heads=False,
+                    seed=42):
+    """Perturb and energy-minimize a CG structure.
+
+    First applies a random thermal perturbation to break grid symmetry,
+    then runs steepest-descent minimization with WCA repulsion and
+    harmonic bond restraints to reach a lower-energy conformation.
+
+    Operates in-place on ``result['beads']`` positions.
+
+    Parameters
+    ----------
+    result : dict
+        Output from a builder function (must have 'beads' and 'bonds').
+    n_steps : int
+        Number of minimization steps.
+    dt : float
+        Maximum displacement per step (nm).
+    sigma : float
+        Effective bead diameter for WCA repulsion (~0.47 nm for Martini).
+    bond_k : float
+        Harmonic spring constant for bonds (kJ/mol/nm²).
+    repulsion_eps : float
+        WCA repulsion strength (kJ/mol).
+    perturb : float
+        Standard deviation of initial random perturbation (nm).
+    constrain_z_heads : bool
+        If True, headgroup beads keep their z-coordinate during relaxation.
+    seed : int
+        Random seed for perturbation.
+    """
+    from scipy.spatial import cKDTree
+
+    beads = result['beads']
+    bonds = result['bonds']
+    n = len(beads)
+    if n == 0:
+        return result
+
+    pos = np.array([b['pos'] for b in beads], dtype=np.float64)
+
+    # Masks
+    head_mask = np.array([b.get('is_head', False) for b in beads])
+    protein_mask = np.array([b.get('is_protein', False) for b in beads])
+
+    # --- Initial perturbation to break grid symmetry ---
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(0, perturb, pos.shape)
+    if constrain_z_heads:
+        noise[head_mask, 2] = 0.0  # keep heads flat
+    # Protein beads: less perturbation
+    noise[protein_mask] *= 0.3
+    pos += noise
+
+    # Bond arrays + target lengths (from pre-perturbation geometry isn't ideal,
+    # recompute from original template-based positions)
+    bond_arr = np.array(bonds, dtype=np.int32) if bonds else np.empty((0, 2), dtype=np.int32)
+    if len(bond_arr) > 0:
+        # Use original positions for target bond lengths
+        orig_pos = np.array([b['pos'] for b in beads], dtype=np.float64)
+        # Actually we already perturbed pos, and beads still has originals at this point
+        # But we modified pos in place, so recompute from the unperturbed state stored in beads
+        # Wait — we haven't written back yet, so beads[i]['pos'] is still original.
+        opos = np.array([b['pos'] for b in beads], dtype=np.float64)  # original
+        bvecs0 = opos[bond_arr[:, 1]] - opos[bond_arr[:, 0]]
+        bond_eq = np.linalg.norm(bvecs0, axis=1)
+        bond_eq = np.clip(bond_eq, 0.20, 0.80)
+    else:
+        bond_eq = np.array([])
+
+    # Bonded pair set for NB exclusion
+    bonded_set = set()
+    for a, b in bonds:
+        bonded_set.add((min(a, b), max(a, b)))
+
+    sigma2 = sigma * sigma
+    wca_cut = sigma * (2.0 ** (1.0 / 6.0))  # ~0.527 nm
+
+    actual_steps = 0
+    for step in range(n_steps):
+        actual_steps = step + 1
+        forces = np.zeros_like(pos)
+
+        # --- WCA repulsion via KDTree neighbor search ---
+        tree = cKDTree(pos)
+        pairs = tree.query_pairs(r=wca_cut + 0.02, output_type='ndarray')
+
+        if len(pairs) > 0:
+            # Exclude bonded pairs vectorized via set lookup
+            keep = np.array([
+                (min(int(p[0]), int(p[1])), max(int(p[0]), int(p[1]))) not in bonded_set
+                for p in pairs
+            ])
+            pairs = pairs[keep]
+
+        if len(pairs) > 0:
+            dvec = pos[pairs[:, 1]] - pos[pairs[:, 0]]  # j - i
+            dist2 = np.sum(dvec * dvec, axis=1)
+            dist2 = np.clip(dist2, 0.04 * sigma2, None)  # avoid singularity
+            dist = np.sqrt(dist2)
+
+            mask_wca = dist < wca_cut
+            if np.any(mask_wca):
+                r = dist[mask_wca]
+                r2 = dist2[mask_wca]
+                inv_r2 = sigma2 / r2
+                inv_r6 = inv_r2 ** 3
+                inv_r12 = inv_r6 ** 2
+                fmag = 24.0 * repulsion_eps * (2.0 * inv_r12 - inv_r6) / r
+                fmag = np.clip(fmag, -1e4, 1e4)
+                # Force direction: unit vector from i to j
+                uv = dvec[mask_wca] / r[:, None]
+                f = uv * fmag[:, None]  # repulsive = pushes apart
+
+                p = pairs[mask_wca]
+                # Vectorized accumulation
+                np.add.at(forces, p[:, 0], -f)
+                np.add.at(forces, p[:, 1], f)
+
+        # --- Harmonic bond forces ---
+        if len(bond_arr) > 0:
+            bvec = pos[bond_arr[:, 1]] - pos[bond_arr[:, 0]]
+            bdist = np.linalg.norm(bvec, axis=1)
+            bdist = np.clip(bdist, 1e-6, None)
+            uv_b = bvec / bdist[:, None]
+            stretch = bdist - bond_eq
+            fmag_b = bond_k * stretch
+            f_b = uv_b * fmag_b[:, None]
+            np.add.at(forces, bond_arr[:, 0], f_b)
+            np.add.at(forces, bond_arr[:, 1], -f_b)
+
+        # --- Constraints ---
+        if constrain_z_heads:
+            forces[head_mask, 2] = 0.0
+        if np.any(protein_mask):
+            forces[protein_mask] *= 0.2
+
+        # --- Steepest descent step (capped displacement) ---
+        fnorm = np.linalg.norm(forces, axis=1, keepdims=True)
+        max_f = fnorm.max()
+        if max_f < 0.5:
+            break  # converged
+
+        # Cap per-bead displacement at dt
+        scale = np.minimum(dt / (fnorm + 1e-12), dt)
+        pos += forces * scale
+
+    # Write back positions
+    for i in range(n):
+        beads[i]['pos'] = pos[i].tolist()
+
+    result['stats']['relax_steps'] = actual_steps
+    return result
 
 
 def _fibonacci_sphere(n):

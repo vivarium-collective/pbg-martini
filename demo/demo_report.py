@@ -25,6 +25,7 @@ from pbg_martini.builders import (
     build_micelle,
     build_protein_in_membrane,
     build_vesicle,
+    relax_structure,
     LIPID_TEMPLATES,
 )
 from pbg_martini.composites import make_martinize_document
@@ -121,24 +122,28 @@ COLOR_SCHEMES = {
               'bg': '#fffbeb', 'accent': '#fbbf24', 'text': '#78350f'},
 }
 
-# Lipid legend colors (match builders.py)
+# Lipid legend colors — Martini paper convention (saturated, distinct)
 LIPID_COLORS_HEX = {
-    'POPC': '#4d8de6', 'POPE': '#d97333', 'CHOL': '#f2d933',
-    'SM': '#cc4da6', 'DPC': '#66cc80', 'DPPC': '#80b3f2',
+    'POPC': '#4a86c8', 'POPE': '#d4772a', 'CHOL': '#e6c619',
+    'SM': '#c44e9a', 'DPC': '#52b36b', 'DPPC': '#7dabd9',
 }
 
 
 def run_config(cfg):
-    """Run a builder for one config and return results + runtime."""
+    """Run a builder for one config, relax, and return results + runtime."""
     t0 = time.perf_counter()
     if cfg['builder'] == 'bilayer':
         result = build_bilayer(**cfg['params'])
+        relax_structure(result, n_steps=700, constrain_z_heads=True, perturb=0.10)
     elif cfg['builder'] == 'micelle':
         result = build_micelle(**cfg['params'])
+        relax_structure(result, n_steps=500, perturb=0.08)
     elif cfg['builder'] == 'protein_membrane':
         result = build_protein_in_membrane(**cfg['params'])
+        relax_structure(result, n_steps=700, constrain_z_heads=True, perturb=0.10)
     elif cfg['builder'] == 'vesicle':
         result = build_vesicle(**cfg['params'])
+        relax_structure(result, n_steps=600, perturb=0.10)
     else:
         raise ValueError(f'Unknown builder: {cfg["builder"]}')
     runtime = time.perf_counter() - t0
@@ -413,21 +418,21 @@ body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-seri
 .metric-value {{ display:block; font-size:1.25rem; font-weight:700; color:#1e293b; }}
 .metric-sub {{ display:block; font-size:.68rem; color:#94a3b8; }}
 
-/* 3D Viewer */
-.viewer-wrap {{ position:relative; background:#0f172a; border:1px solid #334155;
+/* 3D Viewer — Martini paper style: white bg, matte beads */
+.viewer-wrap {{ position:relative; background:#f0f2f5; border:1px solid #d1d5db;
                 border-radius:16px; overflow:hidden; margin-bottom:1rem;
-                box-shadow:0 4px 20px rgba(0,0,0,0.15); }}
+                box-shadow:0 2px 12px rgba(0,0,0,0.08); }}
 .mol-canvas {{ width:100%; height:550px; display:block; cursor:grab; }}
 .mol-canvas:active {{ cursor:grabbing; }}
-.viewer-info {{ position:absolute; top:1rem; left:1rem; background:rgba(15,23,42,0.85);
-                border:1px solid #334155; border-radius:10px; padding:.6rem 1rem;
-                font-size:.75rem; color:#94a3b8; backdrop-filter:blur(6px); }}
-.viewer-info strong {{ color:#e2e8f0; }}
-.legend-box {{ position:absolute; top:1rem; right:1rem; background:rgba(15,23,42,0.85);
-               border:1px solid #334155; border-radius:10px; padding:.7rem .9rem;
-               font-size:.72rem; color:#cbd5e1; backdrop-filter:blur(6px); }}
+.viewer-info {{ position:absolute; top:1rem; left:1rem; background:rgba(255,255,255,0.92);
+                border:1px solid #d1d5db; border-radius:10px; padding:.6rem 1rem;
+                font-size:.75rem; color:#6b7280; backdrop-filter:blur(6px); }}
+.viewer-info strong {{ color:#1f2937; }}
+.legend-box {{ position:absolute; top:1rem; right:1rem; background:rgba(255,255,255,0.92);
+               border:1px solid #d1d5db; border-radius:10px; padding:.7rem .9rem;
+               font-size:.72rem; color:#374151; backdrop-filter:blur(6px); }}
 .legend-item {{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }}
-.legend-dot {{ width:11px; height:11px; border-radius:50%; border:1px solid rgba(255,255,255,0.2); }}
+.legend-dot {{ width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,0.1); }}
 
 /* Charts */
 .charts-row {{ display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem; }}
@@ -552,12 +557,9 @@ function initViewer(sid) {{
   const renderer = new THREE.WebGLRenderer({{canvas, antialias:true, alpha:false}});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(W, H);
-  renderer.setClearColor(0x0f172a);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.setClearColor(0xf0f2f5);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0f172a, 0.012);
 
   const cam = new THREE.PerspectiveCamera(50, W/H, 0.01, 200);
 
@@ -583,34 +585,32 @@ function initViewer(sid) {{
   controls.maxDistance = dist * 4;
   controls.minDistance = dist * 0.3;
 
-  // Lighting — warm key + cool fill + rim
-  scene.add(new THREE.AmbientLight(0x334155, 0.4));
-  const key = new THREE.DirectionalLight(0xfff5e6, 0.9);
-  key.position.set(5, 8, 6); scene.add(key);
-  const fill = new THREE.DirectionalLight(0xc7d2fe, 0.35);
-  fill.position.set(-4, -2, -5); scene.add(fill);
-  const rim = new THREE.DirectionalLight(0xa78bfa, 0.25);
-  rim.position.set(-2, 5, -3); scene.add(rim);
+  // Lighting — soft, even, publication style (matte look)
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 0.6);
+  key.position.set(5, 10, 7); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xf0f0f0, 0.3);
+  fill.position.set(-6, -3, -4); scene.add(fill);
+  const top = new THREE.DirectionalLight(0xffffff, 0.2);
+  top.position.set(0, 10, 0); scene.add(top);
 
-  // Determine bead radius based on system size
-  const beadR = maxR > 5 ? 0.12 : maxR > 2 ? 0.06 : 0.04;
-  const bondR = beadR * 0.22;
+  // Bead radii — VDW-style: heads large, linker medium, tails/rings small
+  // Scale to system size
+  const baseR = maxR > 5 ? 0.18 : maxR > 2 ? 0.10 : 0.07;
 
-  // Instanced sphere rendering
-  const sphereGeo = new THREE.SphereGeometry(1, 14, 10);
-  const sphereMat = new THREE.MeshStandardMaterial({{
-    roughness: 0.35, metalness: 0.05,
-  }});
+  // Instanced spheres — matte Lambertian material (no specular)
+  const sphereGeo = new THREE.SphereGeometry(1, 20, 14);
+  const sphereMat = new THREE.MeshLambertMaterial();
   const mesh = new THREE.InstancedMesh(sphereGeo, sphereMat, n);
   const dummy = new THREE.Object3D();
   const colorAttr = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
 
   for (let i = 0; i < n; i++) {{
     dummy.position.set(d.positions[i*3], d.positions[i*3+1], d.positions[i*3+2]);
-    // Larger beads for heads and proteins
-    let r = beadR;
-    if (d.is_head[i]) r *= 1.3;
-    if (d.is_protein[i]) r *= 1.5;
+    // Size hierarchy: headgroup > linker > tail (matches VMD VDW style)
+    let r = baseR * 0.72;          // tail beads: smallest
+    if (d.is_head[i]) r = baseR;   // headgroup beads: largest
+    if (d.is_protein[i]) r = baseR * 1.1; // protein beads: prominent
     dummy.scale.set(r, r, r);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
@@ -619,21 +619,40 @@ function initViewer(sid) {{
   mesh.instanceColor = colorAttr;
   scene.add(mesh);
 
-  // Bonds — use line segments for performance with large systems
-  if (d.bonds.length < 8000) {{
+  // Bonds — thin cylinders for smaller systems, lines for large ones
+  if (d.bonds.length < 3000) {{
+    // Cylinder bonds (publication quality)
+    const bondR = baseR * 0.15;
+    const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1);
+    const cylMat = new THREE.MeshLambertMaterial({{ color: 0x888888 }});
+    const bondMesh = new THREE.InstancedMesh(cylGeo, cylMat, d.bonds.length);
+    const bd = new THREE.Object3D();
+    const upVec = new THREE.Vector3(0, 1, 0);
+    for (let bi = 0; bi < d.bonds.length; bi++) {{
+      const [a, b] = d.bonds[bi];
+      const ax=d.positions[a*3], ay=d.positions[a*3+1], az=d.positions[a*3+2];
+      const bx=d.positions[b*3], by=d.positions[b*3+1], bz=d.positions[b*3+2];
+      const mx=(ax+bx)/2, my=(ay+by)/2, mz=(az+bz)/2;
+      const dx=bx-ax, dy=by-ay, dz=bz-az;
+      const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+      bd.position.set(mx, my, mz);
+      bd.scale.set(bondR, len, bondR);
+      const dir = new THREE.Vector3(dx, dy, dz).normalize();
+      bd.quaternion.setFromUnitVectors(upVec, dir);
+      bd.updateMatrix();
+      bondMesh.setMatrixAt(bi, bd.matrix);
+    }}
+    scene.add(bondMesh);
+  }} else {{
+    // Fall back to lines for very large systems
     const bondPositions = [];
-    const bondColors = [];
     for (const [a, b] of d.bonds) {{
       bondPositions.push(d.positions[a*3], d.positions[a*3+1], d.positions[a*3+2]);
       bondPositions.push(d.positions[b*3], d.positions[b*3+1], d.positions[b*3+2]);
-      // Use dimmed colors
-      bondColors.push(d.colors[a*3]*0.5, d.colors[a*3+1]*0.5, d.colors[a*3+2]*0.5);
-      bondColors.push(d.colors[b*3]*0.5, d.colors[b*3+1]*0.5, d.colors[b*3+2]*0.5);
     }}
     const bondGeo = new THREE.BufferGeometry();
     bondGeo.setAttribute('position', new THREE.Float32BufferAttribute(bondPositions, 3));
-    bondGeo.setAttribute('color', new THREE.Float32BufferAttribute(bondColors, 3));
-    const bondMat = new THREE.LineBasicMaterial({{ vertexColors: true, transparent: true, opacity: 0.4 }});
+    const bondMat = new THREE.LineBasicMaterial({{ color: 0x999999, transparent: true, opacity: 0.5 }});
     scene.add(new THREE.LineSegments(bondGeo, bondMat));
   }}
 
