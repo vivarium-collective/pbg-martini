@@ -1,5 +1,6 @@
 name: martinize-demo
 description: "Minimal Martini coarse-graining demo: martinize2 maps a tri-alanine atomistic PDB to CG beads. Emits n_beads, n_bonds_cg, reduction_ratio."
+tags: [molecular-dynamics, coarse-grained, demo]
 
 requires:
   processes: [MartinizeStep, RAMEmitter]

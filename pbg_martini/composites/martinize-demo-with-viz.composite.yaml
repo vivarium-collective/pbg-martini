@@ -1,5 +1,6 @@
 name: martinize-demo-with-viz
 description: "Martini coarse-graining demo with a wired Visualization Step. Each update produces a Plotly HTML figure of the running CG summary scalars, written to the 'viz_html' store."
+tags: [molecular-dynamics, coarse-grained, demo, visualization]
 
 requires:
   processes: [MartinizeStep, MartiniBeadSummaryPlots, RAMEmitter]
