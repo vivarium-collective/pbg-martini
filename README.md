@@ -73,6 +73,10 @@ result = step.update({})
 | `MicelleBuilderStep` | Spherical micelle | `lipid`, `n_lipids`, `radius` |
 | `ProteinMembraneStep` | TM helix in bilayer | `composition`, `n_helix_residues` |
 | `VesicleBuilderStep` | Spherical vesicle | `composition`, `n_outer`, `n_inner` |
+| `ParsimonySliceStep` | Slice a parsimony pack sub-box + species | `pack_path`, `box_min/max`, `species` |
+| `MartinizeSpeciesStep` | Resolve + martinize one species → CG template | `species`, `pdb_path`, `elastic` |
+| `ParsimonyAssembleStep` | Stamp CG molecules at parsimony poses | `pack_path`, `stub_beads`, `use_bentopy` |
+| `MartiniMDStep` | WCA relax + best-effort OpenMM short NVT | `relax_steps`, `run_md`, `md_steps` |
 
 ### Builder Functions
 
@@ -116,8 +120,52 @@ Each section features Three.js 3D bead viewers (Martini paper style: matte spher
 VDW sizing, per-lipid coloring), Plotly composition charts, bigraph-viz architecture
 diagrams, and collapsible PBG document trees.
 
+## parsimony → Martini whole-cell MD
+
+A proof-of-concept bridge from parsimony's packed 3D *v2ecoli* structure
+(`ecoli_3d.pack.json`) into a runnable Martini coarse-grained MD system. Instead
+of Bentopy's *random* packing, CG molecules are stamped at the
+parsimony-**measured** positions and orientations, then relaxed and (best-effort)
+run through a short OpenMM NVT.
+
+Pipeline: **slice** a sub-box + species allow-list → **martinize** each species
+once into a CG template → **assemble** (stamp every instance at its pose;
+`bentopy render` when available, else a pure-Python stamper) → **WCA relax** →
+**OpenMM short MD** (best-effort) → **HTML report** with a 3D viewer.
+
+```bash
+# End-to-end demo over a small real sub-box (degrades gracefully if the
+# network / openmm / bentopy are unavailable — the report is always written):
+ECOLI_PACK=~/code/3d-ecoli-app/data/ecoli_3d.pack.json \
+  ./.venv/bin/python demo/parsimony_cell_demo.py --edge 1500 --out output/cell
+
+# Or just assemble + relax + report (offline, stub CG templates):
+./.venv/bin/python scripts/parsimony_report.py --pack $ECOLI_PACK \
+  --center 0 0 0 --edge 1500 --out output/slice
+```
+
+As a PBG composite (`pbg_martini/composites/parsimony-whole-cell.composite.yaml`):
+
+```python
+from pbg_martini.composites import build_composite
+sim = build_composite("parsimony-whole-cell", overrides={
+    "pack_path": "ecoli_3d.pack.json", "out_dir": "output/slice",
+})
+sim.update({}, 1)              # slice → assemble → relax
+print(sim.state["stores"]["gro"], sim.state["stores"]["n_beads"])
+```
+
+The PoC allow-list covers six cleanly-martinizable proteins (GAPDH, EF-Tu,
+GroEL, AhpC, ACP, OmpA). **Deferred:** nucleic acids (`70S_ribosome`, DNA, RNA)
+need Martini-2 nucleic-acid parameters; and the demo uses a sub-box — scaling to
+the *full* cell is a matter of slicing the whole bounding volume in tiles and
+assembling each (the stamper is linear in instance count).
+
+Units: parsimony positions are Ångström; GROMACS `.gro` is nm (positions are
+divided by 10). Rotations are `(w, x, y, z)` quaternions.
+
 ## Tests
 
 ```bash
-pytest tests/ -v  # 23 tests
+./.venv/bin/python -m pytest tests/ -q
 ```
