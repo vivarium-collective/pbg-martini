@@ -393,3 +393,39 @@ def assemble(pack_path, box_min, box_max, species, templates, out_dir,
         "box_nm": box_nm,
         "rendered_by": rendered_by,
     }
+
+
+# --------------------------------------------------------------------------
+# Task 2: structure resolution via pbg-parsimony (atomistic PDB/mmCIF)
+# --------------------------------------------------------------------------
+
+# Allow-list species -> atomistic structure source. EcoCyc EG...-MONOMER ids
+# map (EcoCyc -> UniProt -> AlphaFold DB) to their E. coli K-12 UniProt
+# accessions; groel resolves to the RCSB GroEL crystal structure 1GRL.
+NAME_TO_STRUCTURE_REF = {
+    "EG10367-MONOMER": ("alphafold", "P0A9B2"),  # GAPDH (gapA)
+    "EG11036-MONOMER": ("alphafold", "P0CE47"),  # EF-Tu 1 (tufA)
+    "EG11384-MONOMER": ("alphafold", "P0AE08"),  # AhpC
+    "EG50003-MONOMER": ("alphafold", "P0A6A8"),  # acyl carrier protein (acpP)
+    "EG10669-MONOMER": ("alphafold", "P0A910"),  # OmpA
+    "groel": ("pdb", "1GRL"),                    # GroEL chaperonin (RCSB)
+}
+
+
+def resolve_structure(species_name, cache_dir=".cache/structures") -> str:
+    """Resolve an allow-list species to a cached atomistic PDB/mmCIF path.
+
+    Reuses pbg-parsimony's ``structures.fetch`` (RCSB / AlphaFold DB, cached);
+    we only supply the EcoCyc/RCSB name -> source mapping.
+    """
+    from pbg_parsimony import structures
+
+    if species_name not in NAME_TO_STRUCTURE_REF:
+        raise KeyError(f"no structure source mapping for {species_name!r}")
+    kind, ref = NAME_TO_STRUCTURE_REF[species_name]
+    path = structures.fetch(
+        structures.StructureRef(kind=kind, ref=ref),
+        cache_dir=cache_dir,
+        slug=species_name,
+    )
+    return str(path)

@@ -190,3 +190,27 @@ def test_assemble_real_pack_invariant(tmp_path):
     centroid = stamped.mean(axis=0)
     expected = np.array(groel.position) / 10.0
     assert np.allclose(centroid, expected, atol=1e-6)
+
+
+# --------------------------------------------------------------------------
+# Task 2: structure resolution via pbg-parsimony (network)
+# --------------------------------------------------------------------------
+
+@pytest.mark.network
+@pytest.mark.skipif(bool(os.environ.get("OFFLINE")),
+                    reason="OFFLINE set; skipping network structure fetch")
+def test_resolve_structure_groel(tmp_path):
+    from pbg_martini.parsimony_assembler import resolve_structure
+    path = resolve_structure("groel", cache_dir=str(tmp_path / "structures"))
+    assert os.path.exists(path)
+    assert os.path.getsize(path) > 1024
+
+
+@pytest.mark.network
+@pytest.mark.skipif(bool(os.environ.get("OFFLINE")),
+                    reason="OFFLINE set; skipping network structure fetch")
+def test_resolve_structure_alphafold(tmp_path):
+    from pbg_martini.parsimony_assembler import resolve_structure
+    path = resolve_structure("EG10367-MONOMER", cache_dir=str(tmp_path / "structures"))
+    assert os.path.exists(path)
+    assert os.path.getsize(path) > 1024
