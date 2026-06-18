@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
+import numpy as np
+
 
 # --------------------------------------------------------------------------
 # Task 1: data model + pack loader + slice selection
@@ -112,3 +114,51 @@ def select_slice(pack, box_min, box_max, species_names) -> SliceSpec:
         if _in_box(pl.position, box_min, box_max):
             by_species[ing.name].append(pl)
     return SliceSpec(by_species=by_species)
+
+
+# --------------------------------------------------------------------------
+# Task 4: quaternion rotation + bead stamping (pure math)
+# --------------------------------------------------------------------------
+
+# Confirmed convention: parsimony stores rotations as (w, x, y, z) quaternions.
+# Verified empirically against the synthetic fixture (90 deg about z maps
+# +x -> +y) and re-confirmed at real positions in Task 7. If real packed
+# instances ever appear mirrored, pass quat_order="xyzw" to reinterpret the
+# stored quaternion.
+def quat_to_matrix(q, quat_order="wxyz") -> np.ndarray:
+    """Convert a unit quaternion to a 3x3 rotation matrix.
+
+    ``q`` is normalized first. ``quat_order`` selects the component order of
+    the stored quaternion: ``"wxyz"`` (parsimony default) or ``"xyzw"``.
+    """
+    q = np.asarray(q, dtype=float)
+    if quat_order == "wxyz":
+        w, x, y, z = q
+    elif quat_order == "xyzw":
+        x, y, z, w = q
+    else:
+        raise ValueError(f"unknown quat_order {quat_order!r}")
+
+    n = float(np.sqrt(w * w + x * x + y * y + z * z))
+    if n == 0.0:
+        return np.eye(3)
+    w, x, y, z = w / n, x / n, y / n, z / n
+
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def stamp(template_beads_nm, position_A, rotation, quat_order="wxyz") -> np.ndarray:
+    """Rotate origin-centered template beads, then translate to ``position``.
+
+    ``template_beads_nm`` is an ``(N, 3)`` array of origin-centered bead
+    coordinates in nm. ``position_A`` is the placement position in Angstrom
+    (converted to nm by /10). Returns the stamped ``(N, 3)`` coordinates in nm.
+    """
+    beads = np.asarray(template_beads_nm, dtype=float)
+    R = quat_to_matrix(rotation, quat_order=quat_order)
+    translation_nm = np.asarray(position_A, dtype=float) / 10.0
+    return beads @ R.T + translation_nm

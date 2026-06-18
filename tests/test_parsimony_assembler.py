@@ -47,3 +47,30 @@ def test_load_and_slice(tmp_path):
     # only the two placements at (10,10,10) and (20,0,0) are in-box
     assert sum(len(v) for v in sl.by_species.values()) == 2
     assert len(sl.by_species["groel"]) == 1
+
+
+# --------------------------------------------------------------------------
+# Task 4: quaternion rotation + bead stamping (pure math)
+# --------------------------------------------------------------------------
+
+def test_stamp_identity_translates_only():
+    from pbg_martini.parsimony_assembler import stamp
+    beads = np.array([[1.0, 0, 0], [0, 1.0, 0]])
+    out = stamp(beads, position_A=(50, 0, 0), rotation=(1, 0, 0, 0))  # A->nm: 5.0
+    assert np.allclose(out, beads + np.array([5.0, 0, 0]))
+
+
+def test_stamp_90deg_z():
+    from pbg_martini.parsimony_assembler import stamp
+    beads = np.array([[1.0, 0, 0]])
+    q = (math.cos(math.pi / 4), 0, 0, math.sin(math.pi / 4))  # 90 deg about z, (w,x,y,z)
+    out = stamp(beads, position_A=(0, 0, 0), rotation=q)
+    assert np.allclose(out, np.array([[0, 1.0, 0]]), atol=1e-6)
+
+
+def test_quat_to_matrix_orthonormal():
+    from pbg_martini.parsimony_assembler import quat_to_matrix
+    q = (0.5, 0.5, 0.5, 0.5)
+    R = quat_to_matrix(q)
+    assert np.allclose(R @ R.T, np.eye(3), atol=1e-6)
+    assert np.isclose(np.linalg.det(R), 1.0, atol=1e-6)
