@@ -214,3 +214,58 @@ def test_resolve_structure_alphafold(tmp_path):
     path = resolve_structure("EG10367-MONOMER", cache_dir=str(tmp_path / "structures"))
     assert os.path.exists(path)
     assert os.path.getsize(path) > 1024
+
+
+# --------------------------------------------------------------------------
+# Task 3: CG template via martinize2 (slow, offline)
+# --------------------------------------------------------------------------
+
+# Small bundled peptide (mixed residues) — martinizes offline, fast-ish.
+AAVLG_PDB = """\
+ATOM      1  N   ALA A   1       1.000   1.000   1.000  1.00  0.00           N
+ATOM      2  CA  ALA A   1       2.450   1.000   1.000  1.00  0.00           C
+ATOM      3  C   ALA A   1       3.000   2.400   1.000  1.00  0.00           C
+ATOM      4  O   ALA A   1       2.400   3.400   1.000  1.00  0.00           O
+ATOM      5  CB  ALA A   1       3.000   0.200   2.200  1.00  0.00           C
+ATOM      6  N   ALA A   2       4.300   2.400   1.000  1.00  0.00           N
+ATOM      7  CA  ALA A   2       5.000   3.700   1.000  1.00  0.00           C
+ATOM      8  C   ALA A   2       6.500   3.700   1.000  1.00  0.00           C
+ATOM      9  O   ALA A   2       7.100   4.700   1.000  1.00  0.00           O
+ATOM     10  CB  ALA A   2       4.500   4.500   2.200  1.00  0.00           C
+ATOM     11  N   VAL A   3       7.100   2.600   1.000  1.00  0.00           N
+ATOM     12  CA  VAL A   3       8.500   2.500   1.000  1.00  0.00           C
+ATOM     13  C   VAL A   3       9.100   3.800   1.000  1.00  0.00           C
+ATOM     14  O   VAL A   3       8.500   4.800   1.000  1.00  0.00           O
+ATOM     15  CB  VAL A   3       9.000   1.700   2.200  1.00  0.00           C
+ATOM     16  CG1 VAL A   3      10.500   1.600   2.200  1.00  0.00           C
+ATOM     17  CG2 VAL A   3       8.400   0.300   2.200  1.00  0.00           C
+ATOM     18  N   LEU A   4      10.400   3.700   1.000  1.00  0.00           N
+ATOM     19  CA  LEU A   4      11.200   4.900   1.000  1.00  0.00           C
+ATOM     20  C   LEU A   4      12.700   4.800   1.000  1.00  0.00           C
+ATOM     21  O   LEU A   4      13.300   5.800   1.000  1.00  0.00           O
+ATOM     22  CB  LEU A   4      10.700   6.000   2.000  1.00  0.00           C
+ATOM     23  CG  LEU A   4      11.200   7.400   2.000  1.00  0.00           C
+ATOM     24  CD1 LEU A   4      10.600   8.100   3.200  1.00  0.00           C
+ATOM     25  CD2 LEU A   4      12.700   7.500   2.000  1.00  0.00           C
+ATOM     26  N   GLY A   5      13.300   3.600   1.000  1.00  0.00           N
+ATOM     27  CA  GLY A   5      14.700   3.400   1.000  1.00  0.00           C
+ATOM     28  C   GLY A   5      15.300   4.700   1.000  1.00  0.00           C
+ATOM     29  O   GLY A   5      14.700   5.700   1.000  1.00  0.00           O
+END
+"""
+
+
+@pytest.mark.slow
+def test_martinize_species_template(tmp_path):
+    from pbg_martini.parsimony_assembler import martinize_species
+    pdb = tmp_path / "pep.pdb"
+    pdb.write_text(AAVLG_PDB)
+    tpl = martinize_species("testpep", str(pdb), str(tmp_path / "cg"), elastic=True)
+    assert tpl.n_beads > 0
+    assert tpl.beads_nm.shape == (tpl.n_beads, 3)
+    # recentered to origin
+    assert np.allclose(tpl.beads_nm.mean(axis=0), 0.0, atol=1e-6)
+    assert os.path.exists(tpl.itp_path)
+    itp = open(tpl.itp_path).read()
+    assert "[ moleculetype ]" in itp
+    assert os.path.exists(tpl.structure_path)

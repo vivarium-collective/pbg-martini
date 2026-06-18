@@ -69,6 +69,9 @@ def run_martinize_pipeline(
     to_ff_name='martini3001',
     delete_unknown=True,
     ignh=False,
+    elastic=False,
+    return_itp=False,
+    moltype_name='molecule',
 ):
     """Run the martinize2 pipeline programmatically and return results as a dict.
 
@@ -84,11 +87,22 @@ def run_martinize_pipeline(
         Whether to silently delete residues without a known mapping.
     ignh : bool
         Whether to ignore hydrogen atoms in the input.
+    elastic : bool
+        Whether to apply a Martini elastic network (rubber bands across the
+        backbone) to keep the protein's globular fold. Best-effort: failures
+        degrade to no elastic network.
+    return_itp : bool
+        When True, also return ``itp_text`` (a GROMACS ``.itp`` for the CG
+        molecule(s)) and ``moltype_names`` in the result dict.
+    moltype_name : str
+        Base name for the emitted ``[ moleculetype ]`` (suffixed per chain when
+        the structure yields more than one molecule).
 
     Returns
     -------
     dict
-        Keys match :meth:`MartinizeStep.outputs`.
+        Keys match :meth:`MartinizeStep.outputs`, plus ``itp_text`` /
+        ``moltype_names`` when ``return_itp`` is set.
     """
     import vermouth
     import vermouth.forcefield
@@ -162,6 +176,22 @@ def run_martinize_pipeline(
         vermouth.DoLinks().run_system(system)
         vermouth.LocateChargeDummies().run_system(system)
 
+        if elastic:
+            # Martini elastic network with martinize2's default parameters
+            # (-el 0.5 -eu 0.9 -ef 500 -ea 0 -ep 1 -em 0). Best-effort.
+            try:
+                from vermouth.processors import ApplyRubberBand
+                ApplyRubberBand(
+                    lower_bound=0.5,
+                    upper_bound=0.9,
+                    decay_factor=0.0,
+                    decay_power=1.0,
+                    base_constant=500.0,
+                    minimum_force=0.0,
+                ).run_system(system)
+            except Exception:
+                pass
+
         # Extract results
         cg_beads = []
         cg_positions = []
@@ -205,7 +235,24 @@ def run_martinize_pipeline(
         n_bonds_cg = len(cg_bonds)
         reduction = float(n_atoms_full) / n_beads if n_beads > 0 else 0.0
 
-        return {
+        itp_text = None
+        moltype_names = []
+        if return_itp:
+            import io
+            from vermouth.gmx.itp import write_molecule_itp
+
+            mols = list(system.molecules)
+            buf = io.StringIO()
+            for i, mol in enumerate(mols):
+                name = moltype_name if len(mols) == 1 else f"{moltype_name}_{i}"
+                moltype_names.append(name)
+                if not hasattr(mol, 'nrexcl') or mol.nrexcl is None:
+                    mol.nrexcl = 1
+                write_molecule_itp(mol, outfile=buf, moltype=name)
+                buf.write("\n")
+            itp_text = buf.getvalue()
+
+        result = {
             'cg_beads': cg_beads,
             'cg_positions': cg_positions,
             'cg_bonds': cg_bonds,
@@ -218,6 +265,10 @@ def run_martinize_pipeline(
             'n_bonds_cg': n_bonds_cg,
             'reduction_ratio': round(reduction, 2),
         }
+        if return_itp:
+            result['itp_text'] = itp_text
+            result['moltype_names'] = moltype_names
+        return result
     finally:
         os.unlink(tmp.name)
 

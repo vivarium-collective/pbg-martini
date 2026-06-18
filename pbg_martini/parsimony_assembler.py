@@ -429,3 +429,58 @@ def resolve_structure(species_name, cache_dir=".cache/structures") -> str:
         slug=species_name,
     )
     return str(path)
+
+
+# --------------------------------------------------------------------------
+# Task 3: CG template via martinize2
+# --------------------------------------------------------------------------
+
+def martinize_species(species_name, pdb_path, out_dir, elastic=True,
+                      from_ff="charmm", to_ff="martini3001") -> CGTemplate:
+    """Martinize one atomistic structure into a reusable :class:`CGTemplate`.
+
+    Runs vermouth/martinize2 once via ``run_martinize_pipeline``, recenters the
+    CG beads to the origin (reference orientation for stamping), writes the
+    per-molecule ``.itp`` and a CG ``.gro`` template into ``out_dir``.
+    """
+    from pbg_martini.processes import run_martinize_pipeline
+
+    os.makedirs(out_dir, exist_ok=True)
+    with open(pdb_path) as fh:
+        pdb_text = fh.read()
+
+    result = run_martinize_pipeline(
+        pdb_text,
+        from_ff_name=from_ff,
+        to_ff_name=to_ff,
+        elastic=elastic,
+        return_itp=True,
+        moltype_name=species_name,
+    )
+
+    positions = np.asarray(result["cg_positions"], dtype=float)  # nm
+    centroid = positions.mean(axis=0) if positions.size else np.zeros(3)
+    beads_nm = positions - centroid
+    n_beads = int(result["n_beads"])
+    bead_names = [b.get("atomname", "BB") or "BB" for b in result["cg_beads"]]
+
+    itp_path = os.path.join(out_dir, f"{species_name}.itp")
+    with open(itp_path, "w") as fh:
+        fh.write(result.get("itp_text") or "")
+
+    # Box just needs to enclose the centered template; pad the bead extent.
+    if beads_nm.size:
+        extent = (beads_nm.max(axis=0) - beads_nm.min(axis=0)) + 2.0
+        box = tuple(float(max(e, 1.0)) for e in extent)
+    else:
+        box = (1.0, 1.0, 1.0)
+    struct_path = os.path.join(out_dir, f"{species_name}.gro")
+    write_gro(struct_path, bead_names, beads_nm, box)
+
+    return CGTemplate(
+        name=species_name,
+        structure_path=struct_path,
+        itp_path=itp_path,
+        beads_nm=beads_nm,
+        n_beads=n_beads,
+    )
