@@ -10,6 +10,10 @@ See ``pbg_superpowers.visualization`` for the base-class contract.
 """
 from __future__ import annotations
 
+import html as _html
+
+import numpy as np
+
 from pbg_superpowers.visualization import Visualization
 
 
@@ -76,3 +80,212 @@ class MartiniBeadSummaryPlots(Visualization):
             f'{{responsive:true,displayModeBar:false}});</script>'
         )
         return {'html': html}
+
+
+# ---------------------------------------------------------------------------
+# Task 11: parsimony assembly 3D viewer + HTML report
+# ---------------------------------------------------------------------------
+
+def _read_gro(gro_path):
+    """Read ``(coords_nm (N,3), res_names list[str], box_nm tuple)`` from a .gro."""
+    with open(gro_path) as fh:
+        lines = fh.read().splitlines()
+    n = int(lines[1].strip())
+    coords = np.zeros((n, 3), dtype=float)
+    res_names = []
+    for i in range(n):
+        ln = lines[2 + i]
+        res_names.append(ln[5:10].strip())
+        coords[i] = (float(ln[20:28]), float(ln[28:36]), float(ln[36:44]))
+    box = tuple(float(v) for v in lines[2 + n].split()[:3]) if len(lines) > 2 + n else (0.0, 0.0, 0.0)
+    return coords, res_names, box
+
+
+def _min_pairwise(coords, cap=2000):
+    """Minimum pairwise distance (nm). Subsamples above ``cap`` beads for speed."""
+    coords = np.asarray(coords, dtype=float)
+    n = coords.shape[0]
+    if n < 2:
+        return float("nan")
+    if n > cap:
+        idx = np.linspace(0, n - 1, cap).astype(int)
+        coords = coords[idx]
+    diff = coords[:, None, :] - coords[None, :, :]
+    d2 = np.einsum("ijk,ijk->ij", diff, diff)
+    np.fill_diagonal(d2, np.inf)
+    return float(np.sqrt(d2.min()))
+
+
+def _scatter3d_html(coords, res_names, div_id="parsimony3d", height=460):
+    """Build a self-contained Plotly scatter3d HTML block colored by species."""
+    coords = np.asarray(coords, dtype=float)
+    # Group bead indices by residue/species label so each becomes a colored trace.
+    groups: dict[str, list[int]] = {}
+    for i, name in enumerate(res_names):
+        groups.setdefault(name or "bead", []).append(i)
+    traces = []
+    for name, idx in groups.items():
+        xs = coords[idx, 0].tolist()
+        ys = coords[idx, 1].tolist()
+        zs = coords[idx, 2].tolist()
+        traces.append(
+            '{"x":' + repr(xs) + ',"y":' + repr(ys) + ',"z":' + repr(zs) +
+            ',"mode":"markers","type":"scatter3d","name":"' + _html.escape(name) +
+            '","marker":{"size":4}}'
+        )
+    return (
+        f'<div id="{div_id}" style="height:{height}px"></div>'
+        f'<script>Plotly.newPlot("{div_id}",[{",".join(traces)}],'
+        f'{{margin:{{l:0,r:0,t:0,b:0}},'
+        f'scene:{{aspectmode:"data",xaxis:{{title:"x (nm)"}},'
+        f'yaxis:{{title:"y (nm)"}},zaxis:{{title:"z (nm)"}}}},'
+        f'legend:{{orientation:"h",y:-0.05}}}},'
+        f'{{responsive:true,displayModeBar:false}});</script>'
+    )
+
+
+def build_parsimony_report(
+    assembly_summary: dict,
+    relaxed_gro: str,
+    out_html: str,
+    traj: str | None = None,
+    final_energy: float | None = None,
+    md_ran: bool = False,
+    title: str = "parsimony → Martini whole-cell slice",
+) -> str:
+    """Render a self-contained HTML report for a parsimony->Martini assembly.
+
+    Shows per-species instance counts, total bead count, the box dimensions, the
+    minimum pairwise distance before/after the WCA relax (the "clash" metric),
+    a 3D viewer of the relaxed slice colored by species, and the OpenMM final
+    energy when the best-effort MD stage ran.
+
+    Parameters
+    ----------
+    assembly_summary : dict
+        The return value of :func:`pbg_martini.parsimony_assembler.assemble`
+        (``gro``, ``top``, ``n_beads``, ``n_molecules``, ``per_species_counts``,
+        ``box_nm``, ...).
+    relaxed_gro : str
+        Path to the post-relax ``.gro`` (often equal to ``assembly_summary['gro']``
+        when relax wrote back in place; clash-after is computed from this).
+    out_html : str
+        Destination path. Returned on success.
+    traj : str, optional
+        Trajectory path (recorded in the report header when present).
+    final_energy : float, optional
+        OpenMM potential energy (kJ/mol) when the MD stage ran.
+    md_ran : bool
+        Whether the OpenMM short MD stage actually executed.
+    """
+    counts = assembly_summary.get("per_species_counts", {}) or {}
+    n_beads = assembly_summary.get("n_beads", 0)
+    n_molecules = assembly_summary.get("n_molecules", 0)
+    box_nm = assembly_summary.get("box_nm", (0.0, 0.0, 0.0))
+    rendered_by = assembly_summary.get("rendered_by", "stamper")
+
+    pre_gro = assembly_summary.get("gro")
+    coords_before = res_before = None
+    if pre_gro:
+        try:
+            coords_before, res_before, _ = _read_gro(pre_gro)
+        except Exception:
+            coords_before = None
+    coords_after, res_after, box_read = (None, None, box_nm)
+    try:
+        coords_after, res_after, box_read = _read_gro(relaxed_gro)
+    except Exception:
+        pass
+    if box_read and any(box_read):
+        box_nm = box_read
+
+    clash_before = _min_pairwise(coords_before) if coords_before is not None else float("nan")
+    clash_after = _min_pairwise(coords_after) if coords_after is not None else float("nan")
+
+    viewer_coords = coords_after if coords_after is not None else coords_before
+    viewer_res = res_after if res_after is not None else res_before
+    viewer_html = (
+        _scatter3d_html(viewer_coords, viewer_res)
+        if viewer_coords is not None and viewer_coords.shape[0]
+        else "<em>no beads to display</em>"
+    )
+
+    rows = "".join(
+        f"<tr><td><code>{_html.escape(str(name))}</code></td>"
+        f"<td style='text-align:right'>{count}</td></tr>"
+        for name, count in sorted(counts.items())
+    )
+
+    def _fmt(v):
+        return f"{v:.3f} nm" if v == v else "n/a"  # NaN-safe
+
+    energy_block = ""
+    if md_ran and final_energy is not None:
+        energy_block = (
+            f'<div class="metric"><div class="k">OpenMM final energy</div>'
+            f'<div class="v">{final_energy} kJ/mol</div></div>'
+        )
+    elif final_energy is not None:
+        energy_block = (
+            f'<div class="metric"><div class="k">OpenMM final energy</div>'
+            f'<div class="v">{final_energy} kJ/mol (stage skipped flag)</div></div>'
+        )
+
+    traj_note = (
+        f"<p class='lead'>Trajectory: <code>{_html.escape(traj)}</code></p>"
+        if traj else ""
+    )
+    md_status = "ran" if md_ran else "skipped (best-effort)"
+
+    bx, by, bz = (list(box_nm) + [0.0, 0.0, 0.0])[:3]
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{_html.escape(title)}</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  body {{ font-family:-apple-system,sans-serif; max-width:1000px; margin:2rem auto;
+         color:#1e293b; line-height:1.55; padding:0 1rem; }}
+  h1 {{ margin-bottom:.2rem }}
+  .lead {{ color:#64748b }}
+  h2 {{ margin-top:2rem; padding-bottom:.3rem; border-bottom:1px solid #e2e8f0 }}
+  .metrics {{ display:flex; flex-wrap:wrap; gap:1rem; margin:1rem 0 }}
+  .metric {{ background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;
+             padding:.7rem 1rem; min-width:140px }}
+  .metric .k {{ color:#64748b; font-size:.78rem }}
+  .metric .v {{ font-size:1.25rem; font-weight:600 }}
+  table {{ border-collapse:collapse; margin-top:.5rem }}
+  td,th {{ border:1px solid #e2e8f0; padding:.35rem .8rem }}
+  th {{ background:#f1f5f9 }}
+  code {{ background:#f1f5f9; padding:.05rem .3rem; border-radius:4px }}
+</style></head>
+<body>
+  <h1>{_html.escape(title)}</h1>
+  <p class="lead">Martini CG molecules assembled at the parsimony-measured
+     positions/orientations (replacing Bentopy random packing), then WCA-relaxed.
+     Renderer: <code>{_html.escape(str(rendered_by))}</code>. MD stage: {md_status}.</p>
+  {traj_note}
+
+  <div class="metrics">
+    <div class="metric"><div class="k">n_beads</div><div class="v">{n_beads}</div></div>
+    <div class="metric"><div class="k">n_molecules</div><div class="v">{n_molecules}</div></div>
+    <div class="metric"><div class="k">box</div>
+      <div class="v">{bx:.1f}×{by:.1f}×{bz:.1f} nm</div></div>
+    <div class="metric"><div class="k">min pairwise (pre-relax)</div>
+      <div class="v">{_fmt(clash_before)}</div></div>
+    <div class="metric"><div class="k">min pairwise (post-relax)</div>
+      <div class="v">{_fmt(clash_after)}</div></div>
+    {energy_block}
+  </div>
+
+  <h2>Per-species instance counts</h2>
+  <table><tr><th>species</th><th>instances</th></tr>{rows}</table>
+
+  <h2>3D view of the assembled slice</h2>
+  <p class="lead">One trace per species (bead positions, nm).</p>
+  {viewer_html}
+</body></html>
+"""
+
+    with open(out_html, "w") as fh:
+        fh.write(html)
+    return out_html
