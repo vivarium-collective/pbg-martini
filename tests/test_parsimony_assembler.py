@@ -4,6 +4,7 @@ The offline core (Tasks 1, 4, 5, 6, 7) is fully exercised with a tiny
 synthetic pack and stub CG templates; no network, no Rust binary, no OpenMM.
 """
 
+import importlib.util
 import json
 import math
 import os
@@ -12,6 +13,10 @@ import numpy as np
 import pytest
 
 from pbg_martini.parsimony_assembler import load_pack, select_slice
+
+# Resolving from a cold cache falls through to the pbg-parsimony resolver; skip
+# those tests where it isn't installed (the cache-first path is covered offline).
+_HAS_PBG_PARSIMONY = importlib.util.find_spec("pbg_parsimony") is not None
 
 
 # --------------------------------------------------------------------------
@@ -199,6 +204,8 @@ def test_assemble_real_pack_invariant(tmp_path):
 @pytest.mark.network
 @pytest.mark.skipif(bool(os.environ.get("OFFLINE")),
                     reason="OFFLINE set; skipping network structure fetch")
+@pytest.mark.skipif(not _HAS_PBG_PARSIMONY,
+                    reason="pbg_parsimony not installed; cold-cache fetch unavailable")
 def test_resolve_structure_groel(tmp_path):
     from pbg_martini.parsimony_assembler import resolve_structure
     path = resolve_structure("groel", cache_dir=str(tmp_path / "structures"))
@@ -209,6 +216,8 @@ def test_resolve_structure_groel(tmp_path):
 @pytest.mark.network
 @pytest.mark.skipif(bool(os.environ.get("OFFLINE")),
                     reason="OFFLINE set; skipping network structure fetch")
+@pytest.mark.skipif(not _HAS_PBG_PARSIMONY,
+                    reason="pbg_parsimony not installed; cold-cache fetch unavailable")
 def test_resolve_structure_alphafold(tmp_path):
     from pbg_martini.parsimony_assembler import resolve_structure
     path = resolve_structure("EG10367-MONOMER", cache_dir=str(tmp_path / "structures"))
