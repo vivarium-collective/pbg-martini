@@ -32,3 +32,10 @@ dev = [
 
 [tool.uv.sources]
 pbg-superpowers = { git = "https://github.com/vivarium-collective/pbg-superpowers.git", branch = "main" }
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: uses the real ecoli pack on disk (skipped if absent)",
+    "network: requires network access (structure resolution)",
+    "slow: slow tests (martinize2 a real protein)",
+]

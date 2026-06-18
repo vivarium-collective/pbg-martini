@@ -129,3 +129,64 @@ def test_write_top(tmp_path):
     assert '#include "g.itp"' in txt
     assert "[ molecules ]" in txt
     assert "groel" in txt and "2" in txt
+
+
+# --------------------------------------------------------------------------
+# Task 7: assemble() orchestration against the real pack (integration)
+# --------------------------------------------------------------------------
+
+ECOLI_PACK = os.environ.get(
+    "ECOLI_PACK",
+    os.path.expanduser("~/code/3d-ecoli-app/data/ecoli_3d.pack.json"),
+)
+
+ALLOW_LIST = [
+    "EG10367-MONOMER", "EG11036-MONOMER", "groel",
+    "EG11384-MONOMER", "EG50003-MONOMER", "EG10669-MONOMER",
+]
+
+
+def _stub_templates(n_beads=5):
+    from pbg_martini.parsimony_assembler import CGTemplate
+    return {
+        name: CGTemplate(name, f"{name}.gro", f"{name}.itp",
+                         np.zeros((n_beads, 3)), n_beads)
+        for name in ALLOW_LIST
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not os.path.exists(ECOLI_PACK),
+                    reason="real ecoli pack not present")
+def test_assemble_real_pack_invariant(tmp_path):
+    from pbg_martini.parsimony_assembler import assemble, load_pack, stamp
+    nb = 5
+    templates = _stub_templates(nb)
+    # 1500 A sub-box centered at the cell center.
+    box_min = (-750, -750, -750)
+    box_max = (750, 750, 750)
+    out = assemble(ECOLI_PACK, box_min, box_max, ALLOW_LIST,
+                   templates, str(tmp_path), use_bentopy=False)
+
+    assert out["n_molecules"] == sum(out["per_species_counts"].values())
+    assert out["n_beads"] == sum(c * nb for c in out["per_species_counts"].values())
+    assert out["n_molecules"] > 0
+    assert os.path.exists(out["gro"])
+    assert os.path.exists(out["top"])
+    assert os.path.exists(out["placements_json"])
+
+    # GRO atom-count line matches n_beads.
+    lines = open(out["gro"]).read().splitlines()
+    assert int(lines[1].strip()) == out["n_beads"]
+
+    # A stamped groel instance's centroid matches its placement position / 10.
+    pack = load_pack(ECOLI_PACK)
+    name2id = {ing.name: ing.id for ing in pack.ingredients.values()}
+    gid = name2id["groel"]
+    groel = next(pl for pl in pack.placements
+                 if pl.ingredient_id == gid
+                 and all(box_min[a] <= pl.position[a] <= box_max[a] for a in range(3)))
+    stamped = stamp(np.zeros((nb, 3)), groel.position, groel.rotation)
+    centroid = stamped.mean(axis=0)
+    expected = np.array(groel.position) / 10.0
+    assert np.allclose(centroid, expected, atol=1e-6)

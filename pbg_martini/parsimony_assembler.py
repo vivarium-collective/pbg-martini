@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -315,3 +316,80 @@ def write_top(path, itp_includes, molecule_counts, system_name="parsimony cell s
     with open(path, "w") as fh:
         fh.write("\n".join(lines) + "\n")
     return str(path)
+
+
+# --------------------------------------------------------------------------
+# Task 7: assemble() orchestration (slice -> render -> files)
+# --------------------------------------------------------------------------
+
+def render_bentopy(placements_json_path, top_path, gro_path):
+    """Dispatch to the real ``bentopy render`` binary to assemble gro + top.
+
+    Mirrors the marrink-lab workflow: ``bentopy render -t topol.top
+    placements.json out.gro``. Raises if the binary is unavailable or fails;
+    callers fall back to the pure-Python writers (``stamp_all`` + ``write_gro``).
+    """
+    binary = os.environ.get("BENTOPY_BIN") or shutil.which("bentopy")
+    if not binary:
+        raise RuntimeError("bentopy binary not available")
+    subprocess.run(
+        [binary, "render", "-t", top_path, placements_json_path, gro_path],
+        check=True,
+    )
+    return gro_path
+
+
+def assemble(pack_path, box_min, box_max, species, templates, out_dir,
+             use_bentopy=True, ff_includes=None):
+    """Assemble a Martini CG system from a parsimony pack sub-box.
+
+    Slices the pack, converts to a bentopy placement list (always written to
+    ``placements.json`` for reproducibility / the bentopy path), then renders
+    via real ``bentopy render`` when available + requested, else the pure-Python
+    stamper. Returns a summary dict with file paths and assembly invariants.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    pack = load_pack(pack_path)
+    sl = select_slice(pack, box_min, box_max, species)
+    box_nm = tuple((box_max[a] - box_min[a]) / 10.0 for a in range(3))
+
+    placements_json = os.path.join(out_dir, "placements.json")
+    bentopy_doc = to_bentopy_placements(sl, templates, box_nm)
+    with open(placements_json, "w") as fh:
+        json.dump(bentopy_doc, fh, indent=2)
+
+    counts = {n: len(v) for n, v in sl.by_species.items() if v}
+    n_beads_expected = sum(counts[n] * templates[n].n_beads for n in counts)
+
+    gro = os.path.join(out_dir, "system.gro")
+    top = os.path.join(out_dir, "system.top")
+
+    itp_includes = list(ff_includes or [])
+    itp_includes += [templates[n].itp_path for n in counts]
+
+    rendered_by = "stamper"
+    if use_bentopy and bentopy_available():
+        write_top(top, itp_includes, counts)
+        try:
+            render_bentopy(placements_json, top, gro)
+            rendered_by = "bentopy"
+            n_beads = n_beads_expected
+        except Exception:
+            rendered_by = "stamper"
+
+    if rendered_by == "stamper":
+        coords, names, _ = stamp_all(sl, templates)
+        write_gro(gro, names, coords, box_nm)
+        write_top(top, itp_includes, counts)
+        n_beads = int(coords.shape[0])
+
+    return {
+        "gro": gro,
+        "top": top,
+        "placements_json": placements_json,
+        "n_beads": n_beads,
+        "n_molecules": int(sum(counts.values())),
+        "per_species_counts": counts,
+        "box_nm": box_nm,
+        "rendered_by": rendered_by,
+    }
