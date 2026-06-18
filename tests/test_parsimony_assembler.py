@@ -97,3 +97,35 @@ def test_converter_counts(tmp_path):
 def test_bentopy_available_is_bool():
     from pbg_martini.parsimony_assembler import bentopy_available
     assert isinstance(bentopy_available(), bool)
+
+
+# --------------------------------------------------------------------------
+# Task 6: pure-Python .gro/.top writers + stamp-all assembler
+# --------------------------------------------------------------------------
+
+def test_stamp_all_invariant(tmp_path):
+    from pbg_martini.parsimony_assembler import (
+        CGTemplate, Placement, SliceSpec, stamp_all, write_gro,
+    )
+    tpl = {"groel": CGTemplate("groel", "g.gro", "g.itp", np.zeros((10, 3)), 10),
+           "EG10367-MONOMER": CGTemplate("EG10367-MONOMER", "e.gro", "e.itp", np.zeros((7, 3)), 7)}
+    sl = SliceSpec(by_species={
+        "groel": [Placement(0, (10, 0, 0), (1, 0, 0, 0), 0), Placement(0, (20, 0, 0), (1, 0, 0, 0), 1)],
+        "EG10367-MONOMER": [Placement(1, (0, 0, 0), (1, 0, 0, 0), 2)]})
+    coords, names, counts = stamp_all(sl, tpl)
+    assert coords.shape[0] == 10 * 2 + 7 * 1          # n_beads invariant
+    assert counts == {"groel": 2, "EG10367-MONOMER": 1}
+    g = tmp_path / "s.gro"
+    write_gro(g, names, coords, (30, 30, 30))
+    lines = g.read_text().splitlines()
+    assert int(lines[1].strip()) == coords.shape[0]  # GRO atom count line
+
+
+def test_write_top(tmp_path):
+    from pbg_martini.parsimony_assembler import write_top
+    t = tmp_path / "s.top"
+    write_top(t, itp_includes=["g.itp", "e.itp"], molecule_counts={"groel": 2, "EG10367-MONOMER": 1})
+    txt = t.read_text()
+    assert '#include "g.itp"' in txt
+    assert "[ molecules ]" in txt
+    assert "groel" in txt and "2" in txt

@@ -232,3 +232,86 @@ def to_bentopy_placements(slice_spec, templates, box_nm) -> dict:
             "instances": instances,
         })
     return {"size": list(box_nm), "placements": placements}
+
+
+# --------------------------------------------------------------------------
+# Task 6: pure-Python .gro/.top writers + stamp-all assembler
+# --------------------------------------------------------------------------
+
+def stamp_all(slice_spec, templates):
+    """Stamp every placement of every species at its parsimony pose.
+
+    Returns ``(coords_nm, bead_names, counts)`` where ``coords_nm`` is an
+    ``(N, 3)`` array, ``bead_names`` is a length-N list of per-bead atom names,
+    and ``counts`` maps species name -> instance count. This is the pure-Python
+    fallback renderer and the source of the assembly invariant
+    ``N == sum(template.n_beads * instance_count)``.
+    """
+    chunks = []
+    bead_names = []
+    counts = {}
+    for name, place_list in slice_spec.by_species.items():
+        tpl = templates.get(name)
+        if tpl is None or not place_list:
+            continue
+        per_bead_names = getattr(tpl, "bead_names", None)
+        if not per_bead_names:
+            per_bead_names = [_bead_label(name)] * tpl.n_beads
+        counts[name] = len(place_list)
+        for pl in place_list:
+            stamped = stamp(tpl.beads_nm, pl.position, pl.rotation)
+            chunks.append(stamped)
+            bead_names.extend(per_bead_names)
+    if chunks:
+        coords = np.concatenate(chunks, axis=0)
+    else:
+        coords = np.zeros((0, 3))
+    return coords, bead_names, counts
+
+
+def _bead_label(species_name) -> str:
+    """A short (<=5 char) atom/residue label for a species' beads."""
+    return species_name.replace("-", "")[:5] or "BB"
+
+
+def write_gro(path, bead_names, coords_nm, box_nm):
+    """Write a GROMACS ``.gro`` file (nm units).
+
+    Line 1 is a title, line 2 the atom count, then one fixed-width record per
+    bead, and a final box-vector line.
+    """
+    coords = np.asarray(coords_nm, dtype=float)
+    n = coords.shape[0]
+    lines = ["parsimony->Martini assembled slice", f"{n:5d}"]
+    for i in range(n):
+        atom_name = bead_names[i] if i < len(bead_names) else "BB"
+        res_name = atom_name[:5]
+        resid = (i % 99999) + 1
+        atomid = (i % 99999) + 1
+        x, y, z = coords[i]
+        lines.append(
+            f"{resid:5d}{res_name:<5s}{atom_name:>5s}{atomid:5d}"
+            f"{x:8.3f}{y:8.3f}{z:8.3f}"
+        )
+    bx, by, bz = box_nm
+    lines.append(f"{bx:10.5f}{by:10.5f}{bz:10.5f}")
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return str(path)
+
+
+def write_top(path, itp_includes, molecule_counts, system_name="parsimony cell slice"):
+    """Write a GROMACS ``.top`` file: ``#include`` lines + ``[ molecules ]``."""
+    lines = []
+    for inc in itp_includes:
+        lines.append(f'#include "{inc}"')
+    lines.append("")
+    lines.append("[ system ]")
+    lines.append(system_name)
+    lines.append("")
+    lines.append("[ molecules ]")
+    for name, count in molecule_counts.items():
+        lines.append(f"{name} {count}")
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return str(path)
