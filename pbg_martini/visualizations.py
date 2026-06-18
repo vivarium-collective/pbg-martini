@@ -289,3 +289,84 @@ def build_parsimony_report(
     with open(out_html, "w") as fh:
         fh.write(html)
     return out_html
+
+
+# ---------------------------------------------------------------------------
+# Shareable interactive 3D viewer (NGL) of the assembled Martini CG slice
+# ---------------------------------------------------------------------------
+
+def build_ngl_viewer(
+    gro_path: str,
+    out_html: str,
+    title: str = "parsimony -> Martini E. coli (CG slice)",
+    bead_radius: float = 2.5,
+    color_scheme: str = "resname",
+    background: str = "#0b0f1a",
+) -> str:
+    """Write a self-contained, shareable HTML that renders a Martini CG ``.gro``
+    in 3D as space-filling beads via NGL (loaded from CDN).
+
+    Unlike :func:`build_parsimony_report`'s Plotly scatter, this is a true
+    molecular viewer: every CG bead is a sphere, rotatable/zoomable, and the
+    whole structure is embedded inline so the single ``.html`` file can be
+    shared or hosted as-is (open it in any browser -- no server, no local files).
+
+    Parameters
+    ----------
+    gro_path : str
+        Path to the assembled / relaxed Martini ``.gro`` (coordinates in nm).
+    out_html : str
+        Output HTML path.
+    title : str
+        Heading shown over the viewer.
+    bead_radius : float
+        Sphere radius (angstrom) for each CG bead.
+    color_scheme : str
+        NGL color scheme (e.g. ``"resname"``, ``"chainindex"``, ``"atomindex"``).
+    background : str
+        Viewport background color.
+    """
+    with open(gro_path) as fh:
+        gro_text = fh.read()
+    n_beads = 0
+    try:
+        n_beads = int(gro_text.splitlines()[1].strip())
+    except (IndexError, ValueError):
+        pass
+    gro_block = _html.escape(gro_text)
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_html.escape(title)}</title>
+<style>
+  html,body{{margin:0;height:100%;background:{background};color:#dfe6f3;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}}
+  #bar{{position:fixed;top:0;left:0;right:0;padding:10px 16px;z-index:10;
+    background:linear-gradient(180deg,rgba(11,15,26,.92),rgba(11,15,26,0));}}
+  #bar h1{{margin:0;font-size:15px;font-weight:600}}
+  #bar p{{margin:2px 0 0;font-size:12px;opacity:.7}}
+  #viewport{{position:absolute;inset:0}}
+</style>
+<script src="https://unpkg.com/ngl@2.3.1/dist/ngl.js"></script>
+</head><body>
+  <div id="bar"><h1>{_html.escape(title)}</h1>
+    <p>{n_beads:,} Martini CG beads &middot; drag to rotate &middot; scroll to zoom &middot; NGL spacefill</p></div>
+  <div id="viewport"></div>
+  <script type="text/plain" id="grodata">{gro_block}</script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {{
+      var stage = new NGL.Stage("viewport", {{ backgroundColor: "{background}" }});
+      window.addEventListener("resize", function () {{ stage.handleResize(); }}, false);
+      var groText = document.getElementById("grodata").textContent;
+      var blob = new Blob([groText], {{ type: "text/plain" }});
+      stage.loadFile(blob, {{ ext: "gro" }}).then(function (comp) {{
+        comp.addRepresentation("spacefill", {{
+          radius: {bead_radius}, colorScheme: "{color_scheme}" }});
+        comp.autoView();
+      }});
+    }});
+  </script>
+</body></html>
+"""
+    with open(out_html, "w") as fh:
+        fh.write(html)
+    return out_html

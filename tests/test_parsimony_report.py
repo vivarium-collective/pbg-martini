@@ -72,3 +72,27 @@ def test_build_report_smoke(tmp_path):
     assert "n_beads" in text or "beads" in text.lower()
     # a 3D viewer payload is present
     assert "scatter3d" in text.lower() or "3dmol" in text.lower()
+
+
+def test_build_ngl_viewer_smoke(tmp_path):
+    from pbg_martini.visualizations import build_ngl_viewer
+
+    # minimal 2-bead Martini .gro (coordinates in nm)
+    gro = tmp_path / "mini.gro"
+    gro.write_text(
+        "CG slice\n"
+        "    2\n"
+        "    1ALA   BB    1   1.000   1.000   1.000\n"
+        "    2GLY   BB    2   1.500   1.000   1.000\n"
+        "   3.00000   3.00000   3.00000\n"
+    )
+    out_html = str(tmp_path / "viewer.html")
+    path = build_ngl_viewer(str(gro), out_html=out_html, title="test slice")
+    assert path == out_html
+    text = open(out_html).read()
+    # pulls NGL from CDN, embeds the structure inline, renders spacefill beads
+    assert "ngl" in text.lower()
+    assert "spacefill" in text
+    assert 'id="grodata"' in text
+    assert "1ALA" in text  # structure embedded for self-contained sharing
+    assert "2 Martini CG beads" in text  # bead count surfaced

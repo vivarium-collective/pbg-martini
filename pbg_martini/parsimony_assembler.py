@@ -417,11 +417,22 @@ def resolve_structure(species_name, cache_dir=".cache/structures") -> str:
 
     Reuses pbg-parsimony's ``structures.fetch`` (RCSB / AlphaFold DB, cached);
     we only supply the EcoCyc/RCSB name -> source mapping.
-    """
-    from pbg_parsimony import structures
 
+    Cache-first: if a previously fetched structure is already on disk, return it
+    without importing the (heavier) pbg-parsimony resolver — so assembly works
+    offline and in environments where pbg-parsimony isn't installed but the
+    ``.cache/structures`` directory is warm.
+    """
     if species_name not in NAME_TO_STRUCTURE_REF:
         raise KeyError(f"no structure source mapping for {species_name!r}")
+    slug = species_name.lower().replace("-", "_")
+    for ext in (".pdb", ".cif"):
+        cached = os.path.join(cache_dir, slug + ext)
+        if os.path.exists(cached):
+            return cached
+
+    from pbg_parsimony import structures
+
     kind, ref = NAME_TO_STRUCTURE_REF[species_name]
     path = structures.fetch(
         structures.StructureRef(kind=kind, ref=ref),

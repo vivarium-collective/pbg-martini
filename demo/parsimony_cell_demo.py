@@ -41,7 +41,7 @@ from pbg_martini.parsimony_assembler import (
 )
 from pbg_martini.parsimony_md import openmm_available, relax_assembly, run_short_md
 from pbg_martini.processes import _read_gro_coords
-from pbg_martini.visualizations import build_parsimony_report
+from pbg_martini.visualizations import build_parsimony_report, build_ngl_viewer
 
 ALLOW_LIST = [
     "EG10367-MONOMER", "EG11036-MONOMER", "groel",
@@ -147,6 +147,11 @@ def main():
     build_parsimony_report(summary, relaxed_gro=relaxed_gro, out_html=report,
                            final_energy=final_energy, md_ran=md_ran)
     print(f"   report -> {report}")
+
+    print("== 7. shareable interactive 3D viewer (NGL) ==")
+    viewer = os.path.join(args.out, "parsimony_cell_viewer.html")
+    build_ngl_viewer(relaxed_gro, out_html=viewer)
+    print(f"   viewer -> {viewer}  (open in any browser; self-contained)")
 
 
 if __name__ == "__main__":
