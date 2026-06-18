@@ -74,3 +74,26 @@ def test_quat_to_matrix_orthonormal():
     R = quat_to_matrix(q)
     assert np.allclose(R @ R.T, np.eye(3), atol=1e-6)
     assert np.isclose(np.linalg.det(R), 1.0, atol=1e-6)
+
+
+# --------------------------------------------------------------------------
+# Task 5: bentopy placement-JSON converter + render dispatch
+# --------------------------------------------------------------------------
+
+def test_converter_counts(tmp_path):
+    from pbg_martini.parsimony_assembler import (
+        to_bentopy_placements, CGTemplate, Placement, SliceSpec,
+    )
+    tpl = {"groel": CGTemplate("groel", "g.gro", "g.itp", np.zeros((10, 3)), 10)}
+    sl = SliceSpec(by_species={"groel": [Placement(0, (10, 10, 10), (1, 0, 0, 0), 0)]})
+    j = to_bentopy_placements(sl, tpl, box_nm=(20, 20, 20))
+    seg = [s for s in j["placements"] if s["name"] == "groel"][0]
+    assert len(seg["instances"]) == 1
+    assert np.allclose(seg["instances"][0]["position"], [1.0, 1.0, 1.0])
+    assert tuple(seg["instances"][0]["rotation"]) == (1, 0, 0, 0)
+    assert seg["path"] == "g.gro"
+
+
+def test_bentopy_available_is_bool():
+    from pbg_martini.parsimony_assembler import bentopy_available
+    assert isinstance(bentopy_available(), bool)

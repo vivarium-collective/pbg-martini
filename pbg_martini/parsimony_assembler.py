@@ -15,6 +15,8 @@ positions are divided by 10. Rotations are quaternions ``(w, x, y, z)`` (see
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -162,3 +164,71 @@ def stamp(template_beads_nm, position_A, rotation, quat_order="wxyz") -> np.ndar
     R = quat_to_matrix(rotation, quat_order=quat_order)
     translation_nm = np.asarray(position_A, dtype=float) / 10.0
     return beads @ R.T + translation_nm
+
+
+# --------------------------------------------------------------------------
+# Task 5: bentopy placement-list converter + render dispatch
+# --------------------------------------------------------------------------
+
+@dataclass
+class CGTemplate:
+    """A martinized species template, reused for every placed instance.
+
+    ``beads_nm`` is an ``(n_beads, 3)`` array of origin-centered bead
+    coordinates in nm (reference orientation). ``structure_path`` is the CG
+    ``.gro``/``.pdb`` file; ``itp_path`` is the per-molecule ``.itp``.
+    """
+
+    name: str
+    structure_path: str
+    itp_path: str
+    beads_nm: np.ndarray
+    n_beads: int
+
+
+def bentopy_available() -> bool:
+    """Return True if a ``bentopy`` binary is callable (PATH or ``BENTOPY_BIN``)."""
+    candidate = os.environ.get("BENTOPY_BIN")
+    if candidate and os.path.exists(candidate) and os.access(candidate, os.X_OK):
+        return True
+    return shutil.which("bentopy") is not None
+
+
+def to_bentopy_placements(slice_spec, templates, box_nm) -> dict:
+    """Convert a :class:`SliceSpec` to a bentopy placement-list JSON dict.
+
+    Schema (one segment per species, each carrying its instances)::
+
+        {
+          "size": [x, y, z],            # box edge lengths in nm
+          "placements": [
+            {"name": species,
+             "path": template structure file,
+             "itp": template .itp,
+             "instances": [{"position": [x,y,z] nm, "rotation": [w,x,y,z]}, ...]}
+          ]
+        }
+
+    Positions are converted Angstrom -> nm (/10); rotations pass through as the
+    parsimony quaternion. The exact field names mirror bentopy's documented
+    placement list as closely as can be confirmed offline; if the installed
+    binary expects different keys, adjust here and the matching test.
+    """
+    placements = []
+    for name, place_list in slice_spec.by_species.items():
+        tpl = templates.get(name)
+        if tpl is None:
+            continue
+        instances = []
+        for pl in place_list:
+            instances.append({
+                "position": [p / 10.0 for p in pl.position],
+                "rotation": list(pl.rotation),
+            })
+        placements.append({
+            "name": name,
+            "path": tpl.structure_path,
+            "itp": tpl.itp_path,
+            "instances": instances,
+        })
+    return {"size": list(box_nm), "placements": placements}
