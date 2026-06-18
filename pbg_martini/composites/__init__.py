@@ -31,6 +31,10 @@ from pbg_martini.processes import (
     MicelleBuilderStep,
     ProteinMembraneStep,
     VesicleBuilderStep,
+    ParsimonySliceStep,
+    MartinizeSpeciesStep,
+    ParsimonyAssembleStep,
+    MartiniMDStep,
 )
 
 # Re-export the legacy hand-coded factory so existing call sites
@@ -61,6 +65,10 @@ def register_martini(core=None):
     core.register_link('MicelleBuilderStep', MicelleBuilderStep)
     core.register_link('ProteinMembraneStep', ProteinMembraneStep)
     core.register_link('VesicleBuilderStep', VesicleBuilderStep)
+    core.register_link('ParsimonySliceStep', ParsimonySliceStep)
+    core.register_link('MartinizeSpeciesStep', MartinizeSpeciesStep)
+    core.register_link('ParsimonyAssembleStep', ParsimonyAssembleStep)
+    core.register_link('MartiniMDStep', MartiniMDStep)
     core.register_link('ram-emitter', RAMEmitter)
     core.register_link('RAMEmitter', RAMEmitter)
     # Register Visualization Steps so composites can wire them by name.

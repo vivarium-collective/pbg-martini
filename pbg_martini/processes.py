@@ -412,3 +412,226 @@ class VesicleBuilderStep(Step):
             inner_radius=self.config['inner_radius'],
             seed=self.config['seed'],
         )
+
+
+# --------------------------------------------------------------------------
+# parsimony -> Martini whole-cell PBG Steps (Task 10)
+# --------------------------------------------------------------------------
+
+# Default PoC allow-list of cleanly-martinizable species.
+PARSIMONY_ALLOW_LIST = [
+    'EG10367-MONOMER', 'EG11036-MONOMER', 'groel',
+    'EG11384-MONOMER', 'EG50003-MONOMER', 'EG10669-MONOMER',
+]
+
+
+def _stub_templates(species, n_beads):
+    """Build placeholder origin-centered CG templates (offline composite path)."""
+    import numpy as np
+    from pbg_martini.parsimony_assembler import CGTemplate
+    return {
+        name: CGTemplate(name, f'{name}.gro', f'{name}.itp',
+                         np.zeros((n_beads, 3)), n_beads)
+        for name in species
+    }
+
+
+class ParsimonySliceStep(Step):
+    """Select a spatial sub-box + species allow-list from a parsimony pack."""
+
+    config_schema = {
+        'pack_path': {'_type': 'string', '_default': ''},
+        'box_min': {'_type': 'list', '_default': [-750.0, -750.0, -750.0]},
+        'box_max': {'_type': 'list', '_default': [750.0, 750.0, 750.0]},
+        'species': {'_type': 'list', '_default': PARSIMONY_ALLOW_LIST},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'per_species_counts': 'overwrite[map]',
+            'n_molecules': 'overwrite[integer]',
+        }
+
+    def update(self, state):
+        from pbg_martini.parsimony_assembler import load_pack, select_slice
+        pack = load_pack(self.config['pack_path'])
+        sl = select_slice(
+            pack,
+            tuple(self.config['box_min']),
+            tuple(self.config['box_max']),
+            self.config['species'],
+        )
+        counts = {n: len(v) for n, v in sl.by_species.items() if v}
+        return {
+            'per_species_counts': counts,
+            'n_molecules': int(sum(counts.values())),
+        }
+
+
+class MartinizeSpeciesStep(Step):
+    """Martinize one atomistic structure into a CG template (itp + beads)."""
+
+    config_schema = {
+        'species': {'_type': 'string', '_default': ''},
+        'pdb_path': {'_type': 'string', '_default': ''},
+        'out_dir': {'_type': 'string', '_default': '.cache/templates'},
+        'elastic': {'_type': 'boolean', '_default': True},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'itp_path': 'overwrite[string]',
+            'structure_path': 'overwrite[string]',
+            'n_beads': 'overwrite[integer]',
+        }
+
+    def update(self, state):
+        from pbg_martini.parsimony_assembler import martinize_species
+        tpl = martinize_species(
+            self.config['species'],
+            self.config['pdb_path'],
+            self.config['out_dir'],
+            elastic=self.config['elastic'],
+        )
+        return {
+            'itp_path': tpl.itp_path,
+            'structure_path': tpl.structure_path,
+            'n_beads': int(tpl.n_beads),
+        }
+
+
+class ParsimonyAssembleStep(Step):
+    """Assemble a Martini CG system at the parsimony placements.
+
+    Uses stub templates by default (so the composite runs fully offline);
+    point ``stub_beads`` at a realistic per-species bead count or supply real
+    martinized templates via the library ``assemble`` API for a runnable system.
+    """
+
+    config_schema = {
+        'pack_path': {'_type': 'string', '_default': ''},
+        'box_min': {'_type': 'list', '_default': [-750.0, -750.0, -750.0]},
+        'box_max': {'_type': 'list', '_default': [750.0, 750.0, 750.0]},
+        'species': {'_type': 'list', '_default': PARSIMONY_ALLOW_LIST},
+        'out_dir': {'_type': 'string', '_default': 'output/parsimony_slice'},
+        'stub_beads': {'_type': 'integer', '_default': 5},
+        'use_bentopy': {'_type': 'boolean', '_default': True},
+    }
+
+    def inputs(self):
+        return {}
+
+    def outputs(self):
+        return {
+            'gro': 'overwrite[string]',
+            'top': 'overwrite[string]',
+            'placements_json': 'overwrite[string]',
+            'n_beads': 'overwrite[integer]',
+            'n_molecules': 'overwrite[integer]',
+            'per_species_counts': 'overwrite[map]',
+        }
+
+    def update(self, state):
+        from pbg_martini.parsimony_assembler import assemble
+        templates = _stub_templates(self.config['species'], self.config['stub_beads'])
+        out = assemble(
+            self.config['pack_path'],
+            tuple(self.config['box_min']),
+            tuple(self.config['box_max']),
+            self.config['species'],
+            templates,
+            self.config['out_dir'],
+            use_bentopy=self.config['use_bentopy'],
+        )
+        return {
+            'gro': out['gro'],
+            'top': out['top'],
+            'placements_json': out['placements_json'],
+            'n_beads': out['n_beads'],
+            'n_molecules': out['n_molecules'],
+            'per_species_counts': out['per_species_counts'],
+        }
+
+
+class MartiniMDStep(Step):
+    """WCA-relax the assembly, then a best-effort OpenMM short NVT run.
+
+    Relax always runs (pure Python). The OpenMM stage is best-effort: if
+    OpenMM is unavailable or the topology lacks force-field parameters, it is
+    skipped and ``md_ran`` is False.
+    """
+
+    config_schema = {
+        'relax_steps': {'_type': 'integer', '_default': 200},
+        'md_steps': {'_type': 'integer', '_default': 0},
+        'run_md': {'_type': 'boolean', '_default': False},
+    }
+
+    def inputs(self):
+        return {
+            'gro': 'string',
+            'top': 'string',
+        }
+
+    def outputs(self):
+        return {
+            'minimized_gro': 'overwrite[string]',
+            'final_energy': 'overwrite[float]',
+            'md_ran': 'overwrite[boolean]',
+        }
+
+    def update(self, state):
+        import numpy as np
+        from pbg_martini.parsimony_md import (
+            relax_assembly, run_short_md, openmm_available,
+        )
+
+        gro_path = state['gro']
+        top_path = state['top']
+
+        # WCA relax the stamped coordinates read back from the .gro.
+        coords, box_nm = _read_gro_coords(gro_path)
+        if coords.shape[0]:
+            relaxed = relax_assembly(coords, n_steps=self.config['relax_steps'])
+        else:
+            relaxed = coords
+
+        minimized_gro = gro_path
+        final_energy = 0.0
+        md_ran = False
+        if self.config['run_md'] and openmm_available():
+            try:
+                md = run_short_md(gro_path, top_path,
+                                  steps=self.config['md_steps'])
+                minimized_gro = md['minimized_gro']
+                final_energy = md['final_energy']
+                md_ran = True
+            except Exception:
+                md_ran = False
+
+        return {
+            'minimized_gro': minimized_gro,
+            'final_energy': float(final_energy),
+            'md_ran': md_ran,
+        }
+
+
+def _read_gro_coords(gro_path):
+    """Read coordinates (nm) + box from a GROMACS ``.gro`` file."""
+    import numpy as np
+    with open(gro_path) as fh:
+        lines = fh.read().splitlines()
+    n = int(lines[1].strip())
+    coords = []
+    for i in range(2, 2 + n):
+        ln = lines[i]
+        x = float(ln[20:28]); y = float(ln[28:36]); z = float(ln[36:44])
+        coords.append((x, y, z))
+    box = tuple(float(v) for v in lines[2 + n].split()[:3])
+    return np.array(coords, dtype=float), box
