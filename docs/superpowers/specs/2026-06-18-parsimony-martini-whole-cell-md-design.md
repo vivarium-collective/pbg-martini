@@ -88,21 +88,47 @@ Each stage is independently testable with a clear interface:
   `.itp` + bead count. Cache by species id.
 - **In:** `{species: pdb_path}`. **Out:** `{species: CGTemplate}`.
 
-### Stage 3 — Stamp & assemble (`parsimony_assembler.assemble`)
-- **Does:** for every placement of each selected species in the slice: take the
-  species `CGTemplate`, **rotate** its beads by the placement quaternion,
-  **translate** to `position`, convert **Å → nm** (÷10), assign a unique
-  molecule/residue index, append to a global bead array. Then write:
-  - `system.gro` — all beads (nm), box = sub-box dimensions.
-  - `system.top` — `#include` martini force-field (`martini_v3.0.0.itp`, shipped
-    in repo `pbg_martini/data/` or fetched) + each species `.itp`; `[ molecules ]`
-    section listing each species and its count in the slice.
-  - Optional membrane: a `build_bilayer` Martini patch placed at the
-    cell-envelope face of the sub-box (PoC default: small POPC/POPE/CHOL patch),
-    or — later — Martini lipids stamped at parsimony's `lipid` positions.
-- **In:** `SliceSpec`, `{species: CGTemplate}`, optional membrane config.
-  **Out:** paths to `system.gro`, `system.top`, plus a summary
-  `{n_beads, n_molecules, per_species_counts, box_nm}`.
+### Stage 3 — Convert & render via bentopy (`parsimony_assembler.to_bentopy_placements` + `render`)
+
+The marrink-lab whole-cell workshop (`martini-workshop/05_constructing_martini_cell`)
+assembles its cell in two decoupled bentopy steps:
+
+```
+bentopy pack   --rearrange --seed 5172 --rotations 3  cytosol_input.json   # random packer → placements.json
+bentopy render -t topol.top  outputs/..._placements.json  cytosol.gro      # placements → gro + top
+bentopy grocat chromosome_membrane.gro cytosol.gro:CYT -o cell.gro         # add envelope/chromosome
+```
+
+**This is exactly our bridge:** parsimony *is* the packer, so it **replaces
+`bentopy pack`**. We convert `parsimony.pack.v1` → bentopy's **placement-list
+JSON** ("which structures, at what rotations, placed where") and reuse the real
+**`bentopy render`** to assemble `.gro` + `.top`, plus `bentopy grocat` to add a
+membrane/envelope. We reuse the validated upstream renderer rather than
+hand-rolling a stamper.
+
+- **Does:**
+  1. **Convert** — map each selected parsimony placement → a bentopy placement
+     entry: segment name = species; structure file = that species' martinized CG
+     `.pdb`/`.gro` (Stage 2 template); rotation = the parsimony quaternion
+     (converted to bentopy's rotation convention); position = parsimony
+     `position` converted **Å → nm** (÷10). Emit `placements.json` + a bentopy
+     `output`/topology section listing the Martini `.itp` includes.
+  2. **Render** — run `bentopy render -t system.top placements.json system.gro`.
+  3. **Concatenate** — if a membrane patch is built, `bentopy grocat` it onto the
+     rendered cytosol.
+- **In:** `SliceSpec`, `{species: CGTemplate}` (martinized structure + `.itp`),
+  optional membrane config. **Out:** `placements.json`, `system.gro`,
+  `system.top`, summary `{n_beads, n_molecules, per_species_counts, box_nm}`.
+- **Tool dependency:** the `bentopy` binary (Rust; `BENTOPY_BIN`/`PATH`, install
+  via pip/maturin or cargo) — same pattern pbg-parsimony already uses for the
+  `parsimony` binary.
+- **Fallback:** if `bentopy` is unavailable, a small pure-Python stamper
+  (rotate template beads by the quaternion, translate, write `.gro`/`.top`)
+  produces the same artifact; kept minimal and behind a capability check so the
+  PoC still runs. Primary path is real bentopy.
+- **Membrane:** a `build_bilayer` Martini patch at the envelope face of the
+  sub-box (PoC default: small POPC/POPE/CHOL patch), grocat'd on; later — Martini
+  lipids stamped at parsimony's `lipid` positions through the same converter.
 - **Invariant (tested):** `n_beads == Σ_species (template_bead_count × slice_count)`
   (+ membrane beads).
 
@@ -129,12 +155,15 @@ ecoli_3d.pack.json + meta.json
         │  (Stage 1: slice + resolve)
         ▼
 SliceSpec(placements by species) + {species → atomistic PDB}
-        │  (Stage 2: martinize each species once)
+        │  (Stage 2: martinize each species once → CG structure + itp)
         ▼
-{species → CGTemplate(beads, itp, n)}
-        │  (Stage 3: stamp at parsimony positions/orientations)
+{species → CGTemplate(structure.gro/pdb, itp, n_beads)}
+        │  (Stage 3a: parsimony.pack.v1 → bentopy placements.json)
         ▼
-system.gro + system.top  (+ optional membrane patch)
+placements.json (+ itp includes)
+        │  (Stage 3b: bentopy render → assemble; grocat membrane)
+        ▼
+system.gro + system.top  (+ membrane patch)
         │  (Stage 4: WCA relax → OpenMM min + short NVT)
         ▼
 minimized structure + trajectory + 3D viewer + HTML report
@@ -159,9 +188,14 @@ smoke behind a marker if too slow for CI.
 
 ## Risks & open implementation questions (resolve in the plan)
 
-- **Force-field include:** OpenMM needs `martini_v3.0.0.itp` (+ ion/lipid itps)
-  present. Decide: vendor into `pbg_martini/data/` vs fetch-and-cache. Confirm
-  martinize2 here emits Martini 3 `.itp` compatible with that ff file.
+- **Force-field include:** `system.top` and OpenMM need the Martini 3
+  force-field `.itp` (+ ion/lipid itps). Prefer the **martini-forcefields** pip
+  package over vendoring loose files; confirm martinize2 here emits Martini 3
+  `.itp` compatible with that ff version.
+- **bentopy availability:** Rust binary; decide install route (pip/maturin vs
+  cargo vs `BENTOPY_BIN`) and confirm its placement-list JSON schema + rotation
+  convention against parsimony quaternions (write a converter unit test). The
+  pure-Python stamper is the fallback if bentopy can't be installed.
 - **Elastic network / bonded:** martinize2 single-protein `.itp` may include an
   elastic network (`-elastic`); decide default for PoC (likely on, to keep
   globular shape under Martini).
@@ -172,6 +206,25 @@ smoke behind a marker if too slow for CI.
   locally. Parameterize; default chosen in the plan after inspecting density.
 - **Å → nm and periodic box:** ensure consistent unit conversion and a box that
   encloses the slice with Martini-appropriate padding.
+
+## Upstream tools & references (the templates to follow)
+
+- **marrink-lab/martini-workshop** `05_constructing_martini_cell` — the canonical
+  whole-cell construction tutorial (`tutorial.md`, `input.json`,
+  `chromosome.gro`, `sphere.tsi`, `proteins/`). Our pipeline mirrors it with
+  parsimony swapped in for `bentopy pack`. Workshop uses GROMACS 2024.1 + Martini 2
+  for the cell demo; we target Martini 3 proteins + OpenMM.
+- **marrink-lab/bentopy** — `pack` (random) / `render` (placements→gro/top) /
+  `grocat`. We reuse `render` + `grocat`; we replace `pack` with parsimony.
+- **marrink-lab/vermouth-martinize** — martinize2 (already wrapped by pbg-martini).
+- **marrink-lab/martini-forcefields** — official Martini 3 `.itp` parameter
+  collection; source of the force-field includes for `system.top` (pip-installable
+  package — prefer this over vendoring loose itps).
+- **marrink-lab/TS2CG**, **polyply_1.0** — membrane / DNA builders, for later
+  envelope + chromosome phases (out of PoC scope).
+- For GROMACS-based MD as an alternative to OpenMM, the workshop's `.mdp`
+  minimization/equilibration files are the reference parameter set; OpenMM is the
+  PoC default because no system `gmx` is present.
 
 ## Out of scope (later phases)
 
