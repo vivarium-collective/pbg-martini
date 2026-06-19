@@ -423,13 +423,16 @@ def resolve_structure(species_name, cache_dir=".cache/structures") -> str:
     offline and in environments where pbg-parsimony isn't installed but the
     ``.cache/structures`` directory is warm.
     """
-    if species_name not in NAME_TO_STRUCTURE_REF:
-        raise KeyError(f"no structure source mapping for {species_name!r}")
+    # Cache-first for ANY species (the 3d-ecoli build cached ~50 atomistic
+    # structures by slug); only fall back to the resolver for uncached species.
     slug = species_name.lower().replace("-", "_")
     for ext in (".pdb", ".cif"):
         cached = os.path.join(cache_dir, slug + ext)
         if os.path.exists(cached):
             return cached
+
+    if species_name not in NAME_TO_STRUCTURE_REF:
+        raise KeyError(f"no cached structure and no source mapping for {species_name!r}")
 
     from pbg_parsimony import structures
 
