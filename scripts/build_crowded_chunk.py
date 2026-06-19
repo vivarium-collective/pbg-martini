@@ -40,6 +40,18 @@ ION_ITP = os.path.expanduser(
 EXCLUDE = {"lipid"}  # envelope membrane: not part of a cytoplasm+nucleoid chunk
 
 
+def _load_cached_template(name, tpl_dir):
+    """Reuse a previously martinized template (``<name>.gro`` + ``.itp``)."""
+    from pbg_martini.parsimony_assembler import CGTemplate
+    from pbg_martini.visualizations import _read_gro
+    gro = os.path.join(tpl_dir, f"{name}.gro")
+    itp = os.path.join(tpl_dir, f"{name}.itp")
+    if os.path.exists(gro) and os.path.exists(itp):
+        beads, _, _ = _read_gro(gro)
+        return CGTemplate(name, gro, itp, beads, beads.shape[0])
+    return None
+
+
 def _itp_moltype(itp_path):
     """Return (moleculetype_name, n_atoms, total_charge) from an itp."""
     name, natoms, charge = None, 0, 0.0
@@ -112,15 +124,22 @@ def main():
             moltypes[name] = ("DNA_SEG", itp)
             used.append((name, len(places), tpl.n_beads))
             continue
-        try:
-            pdb = resolve_structure(name)
-            tpl = martinize_species(name, pdb, tpl_dir, elastic=True)
-        except Exception as exc:
-            skipped.append((name, len(places), f"resolve/martinize: {type(exc).__name__}"))
-            continue
+        cached = _load_cached_template(name, tpl_dir)
+        if cached is not None:
+            tpl = cached
+        else:
+            try:
+                pdb = resolve_structure(name)
+                tpl = martinize_species(name, pdb, tpl_dir, elastic=True)
+            except Exception as exc:
+                skipped.append((name, len(places), f"resolve/martinize: {type(exc).__name__}"))
+                continue
         mt, natoms, _ = _itp_moltype(tpl.itp_path)
         if natoms != tpl.n_beads:   # multi-chain mismatch -> skip from run
             skipped.append((name, len(places), f"gro/top mismatch ({tpl.n_beads}!={natoms})"))
+            continue
+        if not np.isfinite(tpl.beads_nm).all():   # martinize2 NaN (multi-chain complexes)
+            skipped.append((name, len(places), "martinize NaN coords"))
             continue
         templates[name] = tpl
         moltypes[name] = (mt, tpl.itp_path)
