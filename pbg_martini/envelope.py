@@ -12,11 +12,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from .parsimony_assembler import CGTemplate
+from .parsimony_assembler import CGTemplate, write_gro
 from . import build_bilayer
 
 APL_NM2 = 0.423          # Martini area per lipid (POPE)
 LEAFLET_OFFSET_NM = 2.0  # half bilayer thickness
+
+# Martini 3 POPE bead order (matches build_bilayer geometry AND the real
+# martini_v3.0.0_POPE.itp): head -> phosphate -> glycerols -> two tails.
+POPE_BEADS = ["NH3", "PO4", "GL1", "GL2", "C1A", "D2A", "C3A", "C4A",
+              "C1B", "C2B", "C3B", "C4B"]
 
 
 def pope_template() -> CGTemplate:
@@ -96,3 +101,23 @@ def build_envelope(R_nm=500.0, L_nm=1000.0, density_scale=1.0, apl_nm2=APL_NM2):
         for k in range(len(pts)):
             coords.append(_orient(tpl, axis[k]) + base[k])
     return (np.concatenate(coords) if coords else np.zeros((0, 3))), 2 * len(pts)
+
+
+def write_envelope_system(coords_nm, n_lipids, out_dir, box_nm,
+                          pope_itp="martini_v3.0.0_POPE.itp"):
+    """Write the envelope as a Martini 3 system: envelope.gro + envelope.top.
+
+    Each lipid is 12 beads in :data:`POPE_BEADS` order, matching the real
+    Martini 3 ``martini_v3.0.0_POPE.itp`` (shipped). Bead order in the .gro
+    therefore lines up with the itp's ``[ atoms ]`` for a valid MD topology.
+    """
+    import os
+    names = (POPE_BEADS * n_lipids)[:coords_nm.shape[0]]
+    gro = os.path.join(out_dir, "envelope.gro")
+    write_gro(gro, names, coords_nm, box_nm)
+    top = os.path.join(out_dir, "envelope.top")
+    with open(top, "w") as f:
+        f.write('#include "martini_v3.0.0.itp"\n')
+        f.write(f'#include "{pope_itp}"\n')
+        f.write(f"\n[ system ]\nMartini 3 cell envelope\n\n[ molecules ]\nPOPE {n_lipids}\n")
+    return gro, top
