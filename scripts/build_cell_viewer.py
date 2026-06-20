@@ -55,7 +55,7 @@ def _ingredient_meta(pack, meta):
 
 def build_cell_viewer(pack_path, meta_path, out_html,
                       title="parsimony 3D E. coli (whole cell)",
-                      background="#05070d"):
+                      background="#05070d", envelope=False, envelope_density=0.006):
     with open(pack_path) as fh:
         pack = json.load(fh)
     meta = None
@@ -86,6 +86,22 @@ def build_cell_viewer(pack_path, meta_path, out_html,
             "count": int(arr.shape[0]),
             "b64": base64.b64encode(arr.tobytes()).decode("ascii"),
         })
+
+    # Optional Martini 3 membrane envelope: a lipid shell on the cell capsule.
+    if envelope:
+        from pbg_martini.envelope import build_envelope
+        env_nm, n_lip = build_envelope(R_nm=500.0, L_nm=1000.0,
+                                       density_scale=envelope_density)
+        env_ang = (env_nm * 10.0)[::12].astype("<f4")   # ~1 marker per lipid
+        species.append({
+            "name": f"Membrane envelope ({n_lip:,} lipids)",
+            "category": "Membrane",
+            "radius": 22.0,
+            "color": [0.30, 0.85, 0.45],
+            "count": int(env_ang.shape[0]),
+            "b64": base64.b64encode(env_ang.tobytes()).decode("ascii"),
+        })
+        total += env_ang.shape[0]
 
     # Sort largest-radius first so big species (ribosomes) draw first.
     species.sort(key=lambda s: -s["radius"])
@@ -190,9 +206,12 @@ def main():
     ap.add_argument("--meta", default=os.path.expanduser(
         "~/code/3d-ecoli-app/data/ecoli_3d.meta.json"))
     ap.add_argument("--out", default="output/ecoli_cell_viewer.html")
+    ap.add_argument("--envelope", action="store_true",
+                    help="overlay the Martini 3 membrane envelope (lipid shell)")
     args = ap.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    out, total, nspec = build_cell_viewer(args.pack, args.meta, args.out)
+    out, total, nspec = build_cell_viewer(args.pack, args.meta, args.out,
+                                          envelope=args.envelope)
     size_mb = os.path.getsize(out) / 1e6
     print(f"wrote {out}  ({total:,} molecules, {nspec} species, {size_mb:.1f} MB)")
 
