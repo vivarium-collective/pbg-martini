@@ -295,7 +295,8 @@ def write_gro(path, bead_names, coords_nm, box_nm):
             f"{x:8.3f}{y:8.3f}{z:8.3f}"
         )
     bx, by, bz = box_nm
-    lines.append(f"{bx:10.5f}{by:10.5f}{bz:10.5f}")
+    # space-separated box (fixed-width %10.5f collides for >=1000 nm boxes)
+    lines.append(f"{bx:.5f} {by:.5f} {bz:.5f}")
     with open(path, "w") as fh:
         fh.write("\n".join(lines) + "\n")
     return str(path)

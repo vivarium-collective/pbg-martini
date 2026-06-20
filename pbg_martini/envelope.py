@@ -112,6 +112,11 @@ def write_envelope_system(coords_nm, n_lipids, out_dir, box_nm,
     therefore lines up with the itp's ``[ atoms ]`` for a valid MD topology.
     """
     import os
+    # GRO %8.3f can't hold large negatives (e.g. -1003.000); shift positive and
+    # size the box to the extent.
+    mn = coords_nm.min(0)
+    coords_nm = coords_nm - mn + 1.0
+    box_nm = tuple((coords_nm.max(0)) + 1.0)
     names = (POPE_BEADS * n_lipids)[:coords_nm.shape[0]]
     gro = os.path.join(out_dir, "envelope.gro")
     write_gro(gro, names, coords_nm, box_nm)

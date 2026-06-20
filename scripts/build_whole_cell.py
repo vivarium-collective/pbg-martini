@@ -116,7 +116,7 @@ def main():
                 for b in range(nb):
                     idx += 1
                     g.write(_gro_record(resid, mt, mt, idx, xyz[b]))
-        g.write("%10.5f%10.5f%10.5f\n" % box)
+        g.write("%.5f %.5f %.5f\n" % box)
 
     # topology
     itps = [a.ff]
