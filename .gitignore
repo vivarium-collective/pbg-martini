@@ -9,3 +9,7 @@ demo/*.png
 output/
 *.nc
 .idea/
+
+# reproducible (from 3d-ecoli/build/structures)
+.cache/
+output/
